@@ -10,7 +10,7 @@ dist-electron/
 # PaddleOCR runtime artifact (built by scripts/build-paddleocr-runner.ps1)
 vendor/paddleocr/paddleocr_runner.exe
 .venv-paddleocr/
-build/pyinstaller/
+# (build/pyinstaller/ listed further down)
 
 # Environment
 .env
@@ -35,8 +35,13 @@ Desktop.ini
 
 # Logs
 *.log
+*.err
 npm-debug.log*
 pnpm-debug.log*
+
+# PyInstaller spec / work (icon.ico in this folder is intentionally tracked)
+build/pyinstaller/
+build/*.spec
 
 # Database (exclude WAL)
 *.db-wal
