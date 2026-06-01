@@ -113,3 +113,62 @@ export async function classifyDocument(
     matchedKeyword: "",
   };
 }
+
+export interface PreviewMatch {
+  totalFiles: number;
+  matchedCount: number;
+  sample: Array<{ id: string; fileName: string }>;
+}
+
+/**
+ * Dry-run: count how many existing files would land in `categoryId` if the
+ * classifier were re-run right now. Used by the Settings → Categories panel
+ * so the user can see the impact of editing keywords before saving.
+ *
+ * We compute the match by replicating `classifyDocument` for each file
+ * (filename + extractedText). The sample is bounded to avoid pulling huge
+ * text payloads back to the renderer.
+ */
+export async function previewCategoryMatch(
+  categoryId: string,
+  options: { sampleSize?: number } = {},
+): Promise<PreviewMatch> {
+  const sampleSize = Math.min(options.sampleSize ?? 10, 50);
+  const categories = await getCategories();
+  const target = categories.find((c) => c.id === categoryId);
+  if (!target) {
+    return { totalFiles: 0, matchedCount: 0, sample: [] };
+  }
+  // We can't predict exactly which category the classifier will pick per file
+  // (priority order: subcategory > parent > other). So instead we test the
+  // inverse: for each file, would the classifier's first-match be this
+  // category? Easiest proxy: does the file match ANY of the target's
+  // keywords, AND no higher-priority category also matches the same file.
+  // To keep the preview fast, we just count files matching the target's
+  // keywords and let the UI clarify it's an upper bound.
+  const keywords = target.keywords;
+  if (keywords.length === 0) {
+    const totalFiles = await prisma.file.count({ where: { isDeleted: false } });
+    return { totalFiles, matchedCount: 0, sample: [] };
+  }
+
+  const totalFiles = await prisma.file.count({ where: { isDeleted: false } });
+  const candidates = await prisma.file.findMany({
+    where: { isDeleted: false },
+    select: { id: true, fileName: true, extractedText: true },
+    take: 5000, // upper bound for a reasonable preview
+  });
+
+  const sample: PreviewMatch["sample"] = [];
+  let matchedCount = 0;
+  for (const f of candidates) {
+    const haystack = `${f.fileName} ${f.extractedText ?? ""}`.toLowerCase();
+    if (keywords.some((kw) => keywordMatches(haystack, kw))) {
+      matchedCount++;
+      if (sample.length < sampleSize) {
+        sample.push({ id: f.id, fileName: f.fileName });
+      }
+    }
+  }
+  return { totalFiles, matchedCount, sample };
+}

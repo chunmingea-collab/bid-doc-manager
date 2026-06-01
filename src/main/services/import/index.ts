@@ -5,12 +5,10 @@ import crypto from "crypto";
 import AdmZip from "adm-zip";
 import { prisma } from "../../../utils/prisma";
 import { computeMd5 } from "./md5";
-import { extractText } from "../ocr/text-extractor";
-import { recognizeText } from "../ocr/ocr-service";
-import { classifyDocument, invalidateCache } from "../classifier/classifier";
-import { extractKeyInfo } from "../classifier/key-info-extractor";
+import { invalidateCache } from "../classifier/classifier";
 import { logger } from "../logger";
 import { removeFtsEntries } from "../db-migrate";
+import { reprocessFile } from "./reprocess";
 
 const SUPPORTED_EXTENSIONS = new Set([
   ".pdf", ".doc", ".docx", ".xls", ".xlsx",
@@ -218,6 +216,70 @@ export async function scanFolder(
   return { files, totalSize, skippedCount: skippedReasons.length, skippedReasons };
 }
 
+/**
+ * Scan a mix of file and folder paths. Used by the drag-and-drop import
+ * flow where the user may drop a single file, several files, or one or
+ * more folders at once.
+ *
+ * Each input path is stat'd: if it's a file, it goes through `tryScanFile`;
+ * if it's a directory, it recurses via `walkDir`. Duplicate results
+ * (same MD5) are de-duplicated while keeping the first occurrence.
+ */
+export async function scanPaths(
+  paths: string[],
+  options: { maxFileSize?: number } = {},
+): Promise<ScanResult> {
+  const maxFileSize = options.maxFileSize ?? DEFAULT_MAX_FILE_SIZE;
+  const files: ScannedFile[] = [];
+  const skippedReasons: { path: string; reason: string }[] = [];
+  const seen = new Set<string>();
+
+  const takeIfNew = (scanned: ScannedFile): void => {
+    if (seen.has(scanned.md5)) return;
+    seen.add(scanned.md5);
+    files.push(scanned);
+  };
+
+  for (const p of paths) {
+    let stat: fse.Stats;
+    try {
+      stat = await fse.stat(p);
+    } catch (err) {
+      skippedReasons.push({ path: p, reason: `路径无法访问: ${err instanceof Error ? err.message : String(err)}` });
+      continue;
+    }
+
+    if (stat.isDirectory()) {
+      await walkDir(p, maxFileSize, files, skippedReasons);
+      // Re-mark seen MD5s after walkDir (it doesn't dedupe).
+      files.forEach((f) => seen.add(f.md5));
+      continue;
+    }
+
+    if (!stat.isFile()) {
+      skippedReasons.push({ path: p, reason: "不是普通文件或目录" });
+      continue;
+    }
+
+    const ext = path.extname(p).toLowerCase();
+    if (!SUPPORTED_EXTENSIONS.has(ext) && ext !== ".ppt" && ext !== ".zip") {
+      skippedReasons.push({ path: p, reason: `不支持的格式: ${ext}` });
+      continue;
+    }
+
+    const fileName = path.basename(p);
+    const scanned = await tryScanFile(p, fileName, ext, maxFileSize);
+    if (scanned) {
+      takeIfNew(scanned);
+    } else {
+      skippedReasons.push({ path: p, reason: "文件过大、为空或读取失败" });
+    }
+  }
+
+  const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+  return { files, totalSize, skippedCount: skippedReasons.length, skippedReasons };
+}
+
 async function tryScanFile(
   fullPath: string,
   fileName: string,
@@ -300,84 +362,15 @@ export async function checkExistingDuplicates(
 
 async function processPipeline(
   fileId: string,
-  filePath: string,
-  fileName: string,
-  ext: string,
+  _filePath: string,
+  _fileName: string,
+  _ext: string,
   onProgress: (phase: string, current: string) => void,
 ): Promise<void> {
-  let text = "";
-
-  if ([".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".txt"].includes(ext)) {
-    onProgress("textExtract", fileName);
-    try {
-      const result = await extractText(filePath);
-      text = result.text ?? "";
-    } catch (err) {
-      logger.warn(`[import] text extraction failed for ${fileName}:`, err);
-    }
-  }
-
-  if (!text && [".jpg", ".jpeg", ".png", ".tiff", ".bmp", ".webp"].includes(ext)) {
-    onProgress("ocr", fileName);
-    try {
-      const result = await recognizeText(filePath);
-      if (result.success) {
-        text = result.text;
-      }
-    } catch (err) {
-      logger.warn(`[import] OCR failed for ${fileName}:`, err);
-    }
-  }
-
-  if (!text && ext === ".txt") {
-    onProgress("textExtract", fileName);
-    try {
-      text = (await fse.readFile(filePath)).toString("utf-8");
-    } catch {
-      logger.warn(`[import] failed to read txt ${fileName}`);
-    }
-  }
-
-  onProgress("classify", fileName);
-  let categoryId: string | null = null;
-  try {
-    const result = await classifyDocument(fileName, text);
-    categoryId = result.categoryId;
-  } catch (err) {
-    logger.warn(`[import] classification failed for ${fileName}:`, err);
-  }
-
-  let keyInfo: Record<string, string | null | undefined> = {};
-  if (text) {
-    try {
-      keyInfo = extractKeyInfo(text) as unknown as Record<string, string | null | undefined>;
-    } catch (err) {
-      logger.warn(`[import] key info extraction failed for ${fileName}:`, err);
-    }
-  }
-
-  try {
-    await prisma.file.update({
-      where: { id: fileId },
-      data: {
-        extractedText: text,
-        categoryId,
-        importStatus: "completed",
-        ...(Object.keys(keyInfo).length > 0 ? {
-          certificateNumber: keyInfo.certificateNumber ?? undefined,
-          expiryDate: keyInfo.expiryDate ?? undefined,
-          companyName: keyInfo.companyName ?? undefined,
-          personName: keyInfo.personName ?? undefined,
-          qualificationLevel: keyInfo.qualificationLevel ?? undefined,
-        } : {}),
-      },
-    });
-  } catch (err) {
-    await prisma.file.update({
-      where: { id: fileId },
-      data: { importStatus: "error", importError: String(err) },
-    });
-  }
+  // Delegates to the public reprocess module which loads its own state from
+  // the DB. Kept as a thin wrapper so the existing call sites in
+  // `importFiles` don't need to change.
+  await reprocessFile(fileId, { onProgress });
 }
 
 export interface DuplicateGroup {
@@ -651,3 +644,4 @@ export async function importFiles(
 }
 
 export { computeMd5 } from "./md5";
+export { reprocessFile, reprocessFiles, type ReprocessSummary } from "./reprocess";

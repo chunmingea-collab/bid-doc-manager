@@ -2,10 +2,12 @@ import { ipcMain, dialog, shell, BrowserWindow, app } from "electron";
 import * as path from "path";
 import {
   scanFolder,
+  scanPaths,
   importFiles,
   pauseImportTask,
   resumeImportTask,
   cancelImportTask,
+  reprocessFiles,
   type ScanResult,
   type ScannedFile,
   type DuplicateAction,
@@ -15,7 +17,7 @@ import { searchDocuments, type SearchFilters } from "../services/search-service"
 import { exportToExcel, exportDocuments } from "../services/export-service";
 import { backupData, restoreData } from "../services/backup-service";
 import { checkExpiringDocuments } from "../services/reminder-service";
-import { invalidateCache as invalidateClassifierCache } from "../services/classifier/classifier";
+import { invalidateCache as invalidateClassifierCache, previewCategoryMatch } from "../services/classifier/classifier";
 import { seedCategories } from "../services/seed-service";
 import {
   getAllSettings,
@@ -78,6 +80,14 @@ export function registerIpcHandlers(): void {
     return scanFolder(folderPath);
   }));
 
+  // Drag-and-drop variant: scan a mixed list of file/folder paths.
+  ipcMain.handle("import:scanPaths", safeHandler(async (_event, paths: string[]): Promise<ScanResult> => {
+    if (!Array.isArray(paths) || paths.length === 0) {
+      return { files: [], totalSize: 0, skippedCount: 0, skippedReasons: [] };
+    }
+    return scanPaths(paths);
+  }));
+
   // --- Import: Start ---
   ipcMain.handle("import:start", safeHandler(async (
     _event,
@@ -107,6 +117,22 @@ export function registerIpcHandlers(): void {
     const ok = cancelImportTask(taskId);
     return { cancelled: ok };
   }));
+
+  // --- Re-run OCR/classification on existing files ---
+  ipcMain.handle(
+    "import:reprocess",
+    safeHandler(async (_event, fileIds: string[]) => {
+      if (!Array.isArray(fileIds) || fileIds.length === 0) {
+        return { total: 0, succeeded: 0, failed: 0, skipped: 0, results: [] };
+      }
+      return reprocessFiles(fileIds, {
+        onProgress: (processed, total, fileName) => {
+          const win = BrowserWindow.getFocusedWindow();
+          win?.webContents.send("import:reprocessProgress", { processed, total, fileName });
+        },
+      });
+    }),
+  );
 
   // --- OCR Status ---
   ipcMain.handle("ocr:status", safeHandler(async () => {
@@ -369,6 +395,14 @@ export function registerIpcHandlers(): void {
     invalidateClassifierCache();
     return { success: true };
   }));
+
+  // --- Category preview: count files that would match a category if re-classified ---
+  ipcMain.handle(
+    "category:previewMatch",
+    safeHandler(async (_event, categoryId: string) => {
+      return previewCategoryMatch(categoryId);
+    }),
+  );
 
   // --- Dashboard Stats ---
   ipcMain.handle("dashboard:stats", safeHandler(async (): Promise<DashboardStats> => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   Button,
   Card,
@@ -12,6 +12,8 @@ import {
   Typography,
   Tag,
   message,
+  Alert,
+  List,
 } from "antd";
 import {
   PlusOutlined,
@@ -19,6 +21,8 @@ import {
   DeleteOutlined,
   UndoOutlined,
   FolderOutlined,
+  CloseOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import type { DataNode } from "antd/es/tree";
 import { useCategoryStore } from "../../store/category-store";
@@ -63,6 +67,207 @@ function buildTree(categories: CategoryRule[]): DataNode[] {
 
   return walk("__root__");
 }
+
+const CategoryDetail: React.FC<{
+  category: CategoryRule;
+  onUpdateKeywords: (keywords: string[]) => void;
+  onRename: (name: string) => void;
+}> = ({ category, onUpdateKeywords, onRename }) => {
+  const [newKeyword, setNewKeyword] = useState("");
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(category.name);
+  const [preview, setPreview] = useState<
+    | { loading: boolean; totalFiles: number; matchedCount: number; sample: Array<{ id: string; fileName: string }> }
+    | null
+  >(null);
+  const previewSeq = useRef(0);
+
+  // Re-sync when the selected category changes (e.g. user picks another row).
+  useEffect(() => {
+    setNameDraft(category.name);
+    setNewKeyword("");
+    setPreview(null);
+    // category.name is intentionally omitted — we only want to re-sync when
+    // the user picks a different category, not when they edit this one's name.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category.id]);
+
+  const addKeyword = () => {
+    const v = newKeyword.trim().toLowerCase();
+    if (!v) return;
+    if (category.keywords.includes(v)) {
+      message.warning(`关键词「${v}」已存在`);
+      return;
+    }
+    onUpdateKeywords([...category.keywords, v]);
+    setNewKeyword("");
+  };
+
+  const removeKeyword = (kw: string) => {
+    onUpdateKeywords(category.keywords.filter((k) => k !== kw));
+  };
+
+  const runPreview = async () => {
+    const seq = ++previewSeq.current;
+    setPreview({ loading: true, totalFiles: 0, matchedCount: 0, sample: [] });
+    try {
+      const r = await window.electronAPI.previewCategoryMatch(category.id);
+      if (seq !== previewSeq.current) return; // stale
+      setPreview({
+        loading: false,
+        totalFiles: r.totalFiles,
+        matchedCount: r.matchedCount,
+        sample: r.sample,
+      });
+    } catch (err) {
+      if (seq !== previewSeq.current) return;
+      setPreview(null);
+      message.error(`测试失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const commitName = () => {
+    const v = nameDraft.trim();
+    if (!v) {
+      message.warning("分类名称不能为空");
+      return;
+    }
+    if (v === category.name) {
+      setEditingName(false);
+      return;
+    }
+    onRename(v);
+    setEditingName(false);
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+        {editingName ? (
+          <Input
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onPressEnter={commitName}
+            onBlur={commitName}
+            autoFocus
+            style={{ maxWidth: 280 }}
+            disabled={!category.isCustom}
+          />
+        ) : (
+          <Title
+            level={5}
+            style={{ margin: 0, cursor: category.isCustom ? "text" : "default" }}
+            onClick={() => category.isCustom && setEditingName(true)}
+            title={category.isCustom ? "点击修改名称" : undefined}
+          >
+            {category.name}
+          </Title>
+        )}
+        <Tag color={category.isCustom ? "orange" : "blue"}>
+          {category.isCustom ? "自定义分类" : "内置分类"}
+        </Tag>
+      </div>
+      <p>
+        <span style={{ color: "#8c8c8c" }}>ID: {category.id}</span>
+        {category.parentId && (
+          <span style={{ color: "#8c8c8c", marginLeft: 12 }}>
+            上级分类 ID: {category.parentId}
+          </span>
+        )}
+      </p>
+
+      <div style={{ marginTop: 24 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 8,
+          }}
+        >
+          <Typography.Text strong>关键词 ({category.keywords.length})</Typography.Text>
+          <Button
+            size="small"
+            icon={<ThunderboltOutlined />}
+            onClick={runPreview}
+            disabled={category.keywords.length === 0 || preview?.loading}
+          >
+            测试匹配
+          </Button>
+        </div>
+        <Input.Search
+          placeholder="输入关键词后按回车添加"
+          value={newKeyword}
+          onChange={(e) => setNewKeyword(e.target.value)}
+          onSearch={addKeyword}
+          enterButton={<PlusOutlined />}
+          style={{ marginBottom: 12 }}
+          disabled={!category.isCustom && false}
+        />
+        {category.keywords.length > 0 ? (
+          <Space wrap>
+            {category.keywords.map((kw) => (
+              <Tag
+                key={kw}
+                closable
+                closeIcon={<CloseOutlined />}
+                onClose={(e) => {
+                  e.preventDefault();
+                  removeKeyword(kw);
+                }}
+                style={{ padding: "4px 8px", fontSize: 13 }}
+              >
+                {kw}
+              </Tag>
+            ))}
+          </Space>
+        ) : (
+          <Typography.Text type="secondary">暂无关键词</Typography.Text>
+        )}
+        {!category.isCustom && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: 12 }}
+            message="内置分类：可以编辑关键词，但重置后会还原。"
+          />
+        )}
+      </div>
+
+      {preview && (
+        <div style={{ marginTop: 24 }}>
+          <Typography.Text strong>匹配测试结果</Typography.Text>
+          <Alert
+            type={preview.matchedCount > 0 ? "success" : "info"}
+            showIcon
+            style={{ marginTop: 8 }}
+            message={
+              preview.loading
+                ? "正在统计..."
+                : `当前关键词会匹配 ${preview.matchedCount} / ${preview.totalFiles} 份资料（最多抽样 5000 份做匹配检测）`
+            }
+          />
+          {!preview.loading && preview.sample.length > 0 && (
+            <List
+              size="small"
+              style={{ marginTop: 12 }}
+              header={<Typography.Text type="secondary">样本（前 {preview.sample.length} 条）</Typography.Text>}
+              bordered
+              dataSource={preview.sample}
+              renderItem={(item) => (
+                <List.Item>
+                  <Typography.Text ellipsis style={{ maxWidth: "100%" }}>
+                    {item.fileName}
+                  </Typography.Text>
+                </List.Item>
+              )}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const CategoryManager: React.FC = () => {
   const {
@@ -233,31 +438,15 @@ const CategoryManager: React.FC = () => {
       {/* Right: Detail panel */}
       <Card title="分类详情" style={{ flex: 1 }}>
         {selectedCategory ? (
-          <div>
-            <Title level={5}>{selectedCategory.name}</Title>
-            <p>
-              <Tag color={selectedCategory.isCustom ? "orange" : "blue"}>
-                {selectedCategory.isCustom ? "自定义分类" : "内置分类"}
-              </Tag>
-              <span style={{ color: "#8c8c8c" }}>ID: {selectedCategory.id}</span>
-            </p>
-            <div style={{ marginTop: 16 }}>
-              <div style={{ marginBottom: 8 }}>
-                <Typography.Text strong>
-                  关键词 ({selectedCategory.keywords.length})
-                </Typography.Text>
-              </div>
-              {selectedCategory.keywords.length > 0 ? (
-                <Space wrap>
-                  {selectedCategory.keywords.map((kw) => (
-                    <Tag key={kw}>{kw}</Tag>
-                  ))}
-                </Space>
-              ) : (
-                <Typography.Text type="secondary">暂无关键词</Typography.Text>
-              )}
-            </div>
-          </div>
+          <CategoryDetail
+            category={selectedCategory}
+            onUpdateKeywords={(keywords) => {
+              updateCategory(selectedCategory.id, { keywords });
+            }}
+            onRename={(name) => {
+              updateCategory(selectedCategory.id, { name });
+            }}
+          />
         ) : (
           <div style={{ color: "#bfbfbf", textAlign: "center", padding: 48 }}>
             <FolderOutlined style={{ fontSize: 48, marginBottom: 16, display: "block" }} />

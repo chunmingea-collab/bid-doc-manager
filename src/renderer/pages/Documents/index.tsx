@@ -6,6 +6,7 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Progress,
   Select,
   Space,
   Table,
@@ -24,6 +25,7 @@ import {
   FolderOpenOutlined,
   EyeOutlined,
   EditOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
@@ -205,6 +207,7 @@ const DocumentsPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
+  const [reprocessState, setReprocessState] = useState<{ processed: number; total: number; current: string } | null>(null);
   const [categoryOptions, setCategoryOptions] = useState<Array<{ value: string; label: string }>>([]);
   const [ocrModalOpen, setOcrModalOpen] = useState(false);
   const [ocrDoc, setOcrDoc] = useState<DocumentRecord | null>(null);
@@ -451,6 +454,40 @@ const DocumentsPage: React.FC = () => {
     });
   };
 
+  const handleBulkReprocess = async () => {
+    // Only retry files that are in 'error' state — re-running 'completed'
+    // files would be wasted work and might overwrite user corrections.
+    const errorIds = documents
+      .filter((d) => selectedRowKeys.includes(d.id) && d.importStatus === "error")
+      .map((d) => d.id);
+    if (errorIds.length === 0) {
+      message.info("所选项中没有处理失败的文件");
+      return;
+    }
+    setReprocessState({ processed: 0, total: errorIds.length, current: "" });
+    const unsub = window.electronAPI.onReprocessProgress((_e, p) => {
+      setReprocessState({ processed: p.processed, total: p.total, current: p.fileName });
+    });
+    try {
+      const result = await window.electronAPI.reprocessFiles(errorIds);
+      if (result.failed === 0) {
+        message.success(`已成功重试 ${result.succeeded} 个文件`);
+      } else {
+        message.warning(
+          `重试完成：成功 ${result.succeeded}，失败 ${result.failed}，跳过 ${result.skipped}`,
+        );
+      }
+      // Drop the now-stale rows from the selection.
+      setSelectedRowKeys((prev) => prev.filter((id) => !errorIds.includes(String(id))));
+      fetchDocuments(searchText, categoryFilter, typeFilter);
+    } catch (err) {
+      message.error(`批量重试失败：${formatError(err)}`);
+    } finally {
+      unsub();
+      setReprocessState(null);
+    }
+  };
+
   const columns: ColumnsType<DocumentRecord> = [
     {
       title: '文件名称',
@@ -637,10 +674,33 @@ const DocumentsPage: React.FC = () => {
             <Button size="small" icon={<ExportOutlined />} onClick={handleExportZip}>
               导出选中文件
             </Button>
+            <Button
+              size="small"
+              icon={<SyncOutlined spin={!!reprocessState} />}
+              onClick={handleBulkReprocess}
+              disabled={!!reprocessState}
+            >
+              重试 OCR
+            </Button>
             <Button size="small" danger icon={<DeleteOutlined />} onClick={handleBulkDelete}>
               批量删除
             </Button>
           </Space>
+          {reprocessState && (
+            <div style={{ marginTop: 8 }}>
+              <Progress
+                percent={Math.round((reprocessState.processed / reprocessState.total) * 100)}
+                size="small"
+                status="active"
+                format={(p) => `${reprocessState.processed} / ${reprocessState.total}（${p}%）`}
+              />
+              {reprocessState.current && (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  当前：{reprocessState.current}
+                </Typography.Text>
+              )}
+            </div>
+          )}
         </Card>
       )}
 

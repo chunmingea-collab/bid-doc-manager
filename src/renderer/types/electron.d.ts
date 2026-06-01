@@ -105,6 +105,7 @@ export interface ElectronAPI {
 
   // Import
   scanFolder: (folderPath: string) => Promise<ScanResultType>;
+  scanPaths: (paths: string[]) => Promise<ScanResultType>;
   startImport: (
     scannedFiles: ScannedFileType[],
     duplicateAction: "skip" | "overwrite" | "keep_both",
@@ -154,6 +155,11 @@ export interface ElectronAPI {
   updateCategory: (data: { id: string; name: string; parentId: string | null; keywords: string[] }) => Promise<{ success: boolean }>;
   deleteCategory: (id: string) => Promise<{ success: boolean }>;
   resetCategoriesToDefaults: () => Promise<{ success: boolean }>;
+  previewCategoryMatch: (categoryId: string) => Promise<{
+    totalFiles: number;
+    matchedCount: number;
+    sample: Array<{ id: string; fileName: string }>;
+  }>;
 
   // Dashboard
   getDashboardStats: () => Promise<DashboardStats>;
@@ -176,6 +182,16 @@ export interface ElectronAPI {
   pauseImport: (taskId: string) => Promise<{ paused: boolean }>;
   resumeImport: (taskId: string) => Promise<{ resumed: boolean }>;
   cancelImport: (taskId: string) => Promise<{ cancelled: boolean }>;
+  reprocessFiles: (fileIds: string[]) => Promise<{
+    total: number;
+    succeeded: number;
+    failed: number;
+    skipped: number;
+    results: Array<{ fileId: string; fileName: string; status: "completed" | "error" | "skipped"; error?: string }>;
+  }>;
+  onReprocessProgress: (
+    callback: (event: unknown, payload: { processed: number; total: number; fileName: string }) => void
+  ) => () => void;
   onNotification: (callback: (event: unknown, item: NotificationItem) => void) => () => void;
   onStartupReminder: (callback: (event: unknown, item: NotificationItem) => void) => () => void;
   onNotificationOpen: (callback: (event: unknown, payload: { route: string }) => void) => () => void;

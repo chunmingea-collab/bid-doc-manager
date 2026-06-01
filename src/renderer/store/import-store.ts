@@ -29,6 +29,7 @@ export interface ImportStore {
   hydrateFromSettings: () => Promise<void>;
 
   startScan: (folderPath: string) => Promise<void>;
+  startScanPaths: (paths: string[]) => Promise<void>;
   startImport: (files: ScannedFileType[]) => Promise<void>;
   pauseImport: () => Promise<void>;
   resumeImport: () => Promise<void>;
@@ -85,6 +86,19 @@ export const useImportStore = create<ImportStore>((set, get) => ({
     } catch (err) {
       console.error("Scan failed:", err);
       set({ phase: "idle" });
+      throw err;
+    }
+  },
+
+  startScanPaths: async (paths) => {
+    set({ phase: "scanning", scanResult: null });
+    try {
+      const result = await window.electronAPI.scanPaths(paths);
+      set({ scanResult: result, phase: "reviewing" });
+    } catch (err) {
+      console.error("Scan failed:", err);
+      set({ phase: "idle" });
+      throw err;
     }
   },
 

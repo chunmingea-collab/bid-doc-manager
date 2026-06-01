@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Button,
   Card,
@@ -49,6 +49,7 @@ export default function ImportPage() {
   const setPhase = useImportStore((s) => s.setPhase);
   const setDuplicateAction = useImportStore((s) => s.setDuplicateAction);
   const startScan = useImportStore((s) => s.startScan);
+  const startScanPaths = useImportStore((s) => s.startScanPaths);
   const startImport = useImportStore((s) => s.startImport);
   const pauseImport = useImportStore((s) => s.pauseImport);
   const resumeImport = useImportStore((s) => s.resumeImport);
@@ -61,6 +62,42 @@ export default function ImportPage() {
   }, [hydrateFromSettings]);
 
   const isDisabled = phase === "scanning" || phase === "importing";
+
+  // Drag-and-drop: lifted up to be accessible from the idle/scanning views.
+  const [isDragOver, setIsDragOver] = useState(false);
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (isDisabled) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+    if (!isDragOver) setIsDragOver(true);
+  }, [isDisabled, isDragOver]);
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }, []);
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    if (isDisabled) return;
+    const files = Array.from(e.dataTransfer.files);
+    // Electron 28 sets `file.path` on each File from a drop. Folders dragged
+    // from the OS do not appear in `files` — users have to use the button.
+    const paths = files
+      .map((f) => (f as File & { path?: string }).path)
+      .filter((p): p is string => typeof p === "string" && p.length > 0);
+    if (paths.length === 0) {
+      message.warning("未能识别拖入的路径，请使用「选择文件夹」按钮。");
+      return;
+    }
+    try {
+      await startScanPaths(paths);
+    } catch (err) {
+      message.error(`扫描失败：${formatError(err)}`);
+    }
+  }, [isDisabled, startScanPaths]);
 
   const handleSelectFolder = useCallback(async () => {
     if (!window.electronAPI?.openDirectory || isDisabled) return;
@@ -95,13 +132,17 @@ export default function ImportPage() {
 
         <Card
           style={{
-            background: token.colorBgLayout,
+            background: isDragOver ? token.colorFillTertiary : token.colorBgLayout,
             marginBottom: 24,
-            border: `2px dashed ${token.colorBorder}`,
+            border: `2px dashed ${isDragOver ? token.colorPrimary : token.colorBorder}`,
             borderRadius: 8,
             textAlign: "center",
             padding: 48,
+            transition: "background 0.15s, border-color 0.15s",
           }}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
         >
           <Space direction="vertical" size="large" style={{ width: "100%" }}>
             <InboxOutlined style={{ fontSize: 48, color: token.colorPrimary }} />
@@ -119,6 +160,29 @@ export default function ImportPage() {
               onClick={handleSelectFolder}
             >
               {phase === "scanning" ? "正在扫描文件夹..." : "选择文件夹"}
+            </Button>
+            <Button
+              size="large"
+              icon={<FileTextOutlined />}
+              loading={phase === "scanning"}
+              disabled={isDisabled}
+              onClick={async () => {
+                if (!window.electronAPI?.openFile || isDisabled) return;
+                const SUPPORTED = ["pdf", "doc", "docx", "xls", "xlsx", "pptx", "txt",
+                  "jpg", "jpeg", "png", "tiff", "bmp", "webp"];
+                const picked = await window.electronAPI.openFile([
+                  { name: "支持的文件", extensions: SUPPORTED },
+                ]);
+                if (picked) {
+                  try {
+                    await startScanPaths([picked]);
+                  } catch (err) {
+                    message.error(`扫描失败：${formatError(err)}`);
+                  }
+                }
+              }}
+            >
+              选择文件
             </Button>
           </Space>
         </Card>

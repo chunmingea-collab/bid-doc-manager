@@ -1,4 +1,4 @@
-import { Layout, Menu, theme } from "antd";
+import { ConfigProvider, Layout, Menu, theme } from "antd";
 import React, { useEffect, useState } from "react";
 import { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
@@ -9,6 +9,7 @@ import SettingsPage from "./pages/Settings";
 import ErrorBoundary from "./components/ErrorBoundary";
 import NotificationCenter from "./components/NotificationCenter";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
+import { useThemeMode } from "./hooks/useThemeMode";
 
 const { Header, Content, Sider } = Layout;
 
@@ -52,6 +53,13 @@ function AppShell(): React.ReactElement {
   const { token } = theme.useToken();
   const navigate = useNavigate();
   useGlobalShortcuts();
+
+  // Sync the OS theme preference to <body> so native scrollbars, the
+  // Electron title bar overlay, and any non-Antd widgets follow along.
+  const { resolved } = useThemeMode();
+  useEffect(() => {
+    document.body.dataset.theme = resolved;
+  }, [resolved]);
 
   useEffect(() => {
     const menuHandler = (_e: unknown, route: string) => {
@@ -111,10 +119,13 @@ function AppShell(): React.ReactElement {
 }
 
 function App(): React.ReactElement {
+  const { themeConfig } = useThemeMode();
   return (
-    <HashRouter>
-      <AppShell />
-    </HashRouter>
+    <ConfigProvider theme={themeConfig}>
+      <HashRouter>
+        <AppShell />
+      </HashRouter>
+    </ConfigProvider>
   );
 }
 

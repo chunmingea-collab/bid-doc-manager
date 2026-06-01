@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Import
   scanFolder: (folderPath: string) => ipcRenderer.invoke("import:scan", folderPath),
+  scanPaths: (paths: string[]) => ipcRenderer.invoke("import:scanPaths", paths),
   startImport: (scannedFiles: unknown[], duplicateAction: string) =>
     ipcRenderer.invoke("import:start", { scannedFiles, duplicateAction }),
 
@@ -49,6 +50,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("category:update", data),
   deleteCategory: (id: string) => ipcRenderer.invoke("category:delete", id),
   resetCategoriesToDefaults: () => ipcRenderer.invoke("category:reset"),
+  previewCategoryMatch: (categoryId: string) =>
+    ipcRenderer.invoke("category:previewMatch", categoryId),
 
   // Dashboard
   getDashboardStats: () => ipcRenderer.invoke("dashboard:stats"),
@@ -75,6 +78,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   pauseImport: (taskId: string) => ipcRenderer.invoke("import:pause", taskId),
   resumeImport: (taskId: string) => ipcRenderer.invoke("import:resume", taskId),
   cancelImport: (taskId: string) => ipcRenderer.invoke("import:cancel", taskId),
+  reprocessFiles: (fileIds: string[]) => ipcRenderer.invoke("import:reprocess", fileIds),
+  onReprocessProgress: (callback: (event: unknown, payload: { processed: number; total: number; fileName: string }) => void) => {
+    ipcRenderer.on("import:reprocessProgress", callback);
+    return () => ipcRenderer.removeListener("import:reprocessProgress", callback);
+  },
 
   onNotification: (callback: (event: unknown, item: unknown) => void) => {
     ipcRenderer.on("notification:new", callback);
