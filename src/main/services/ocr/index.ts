@@ -1,0 +1,1 @@
+export { recognizeText, isAvailable, getOcrStatus, type RecognizeResult, type OcrStatus } from "./ocr-service";

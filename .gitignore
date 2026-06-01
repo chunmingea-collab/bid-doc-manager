@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+release/
+dist-electron/
+
+# PaddleOCR runtime artifact (built by scripts/build-paddleocr-runner.ps1)
+vendor/paddleocr/paddleocr_runner.exe
+.venv-paddleocr/
+build/pyinstaller/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Tool local settings
+.claude/
+.opencode/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Database (exclude WAL)
+*.db-wal
+*.db-shm
+
+# Package manager
+.pnpm-store/

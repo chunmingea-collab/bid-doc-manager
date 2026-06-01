@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./bid_doc_manager.db"
+}
+
+model ImportTask {
+  id             String    @id @default(uuid())
+  sourcePath     String
+  status         String    // pending, running, paused, completed, failed
+  totalFiles     Int       @default(0)
+  processedFiles Int       @default(0)
+  errorCount     Int       @default(0)
+  options        String?   // JSON: {skipDuplicates, maxFileSize, ...}
+  errors         String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  files          File[]
+}
+
+model File {
+  id                String   @id @default(uuid())
+  originalPath      String
+  fileName          String
+  extension         String
+  size              Int      // bytes
+  md5               String   @unique
+  extractedText     String   @default("")
+  correctedText     String?  // user-corrected OCR
+
+  // Key info extracted via regex/keyword
+  certificateNumber String?
+  expiryDate        String?
+  companyName       String?
+  personName        String?
+  qualificationLevel String?
+
+  // Classification
+  categoryId        String?
+  category          Category? @relation(fields: [categoryId], references: [id])
+
+  tags              Tag[]    @relation("FileTags")
+
+  // Import tracking
+  importStatus      String   @default("pending") // pending, ocr, classified, completed, error
+  importError       String?
+  importTaskId      String?
+  importTask        ImportTask? @relation(fields: [importTaskId], references: [id])
+
+  // Lifecycle
+  isDeleted         Boolean  @default(false)
+  deletedAt         DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Fulltext index for search (SQLite FTS can be added later)
+  @@index([fileName])
+  @@index([categoryId])
+  @@index([expiryDate])
+  @@index([createdAt])
+  @@index([md5])
+}
+
+model Category {
+  id         String  @id @default(uuid())
+  name       String  // 企业基础资料, 企业资质证书, etc.
+  parentId   String?
+  parent     Category?  @relation("CategoryChildren", fields: [parentId], references: [id])
+  children   Category[] @relation("CategoryChildren")
+  keywords   String   @default("") // comma-separated
+  isCustom   Boolean  @default(false) // false = built-in, true = user
+  sortOrder  Int      @default(0)
+  files      File[]
+
+  @@index([parentId])
+  @@index([name])
+}
+
+model Tag {
+  id    String @id @default(uuid())
+  name  String @unique
+  color String @default("#1890ff")
+  files File[] @relation("FileTags")
+
+  @@index([name])
+}
+
+model Setting {
+  key       String   @id
+  value     String   // JSON-serialized value
+  updatedAt DateTime @updatedAt
+}

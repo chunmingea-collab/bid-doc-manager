@@ -1,0 +1,87 @@
+# electron-builder configuration
+# See https://www.electron.build/configuration/configuration
+
+appId: com.biddateapps.doc-manager
+productName: 投标资料管理工具
+copyright: Copyright © 2026
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - "!node_modules/**/*"
+  - package.json
+  - node_modules/.prisma/client/**/*
+  - node_modules/@prisma/client/**/*
+  - node_modules/@prisma/client/runtime/**/*
+
+asar: true
+asarUnpack:
+  - "**/*.node"
+  - "**/*.dll"
+  - "**/*.so"
+  - "**/prisma/**/*"
+
+extraResources:
+  - from: paddle-ocr-models
+    to: paddle-ocr-models
+    filter:
+      - "**/*"
+  - from: vendor/paddleocr
+    to: vendor/paddleocr
+    filter:
+      - "paddleocr_runner.exe"
+  - from: prisma/bid_doc_manager.db
+    to: prisma/bid_doc_manager.db
+
+# Main entry point for production
+extraMetadata:
+  main: dist-electron/index.js
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: "${productName}-Setup-${version}-win-x64.${ext}"
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 投标资料管理工具
+  deleteAppDataOnUninstall: false
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  artifactName: "${productName}-Setup-${version}-win-x64.${ext}"
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  artifactName: "${productName}-${version}-mac-${arch}.${ext}"
+  category: public.app-category.business
+  hardenedRuntime: true
+
+dmg:
+  title: 投标资料管理工具
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+  artifactName: "${productName}-${version}-mac-${arch}.${ext}"
+
+# Include Prisma query engine for the target platform
+afterPack: scripts/after-pack.js
+
+publish: null
