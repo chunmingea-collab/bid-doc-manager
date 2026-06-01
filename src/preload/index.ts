@@ -34,6 +34,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   deleteFile: (fileId: string) => ipcRenderer.invoke("file:delete", fileId),
   correctText: (fileId: string, correctedText: string) =>
     ipcRenderer.invoke("file:correctText", { fileId, correctedText }),
+  readFileBytes: (filePath: string) => ipcRenderer.invoke("file:read", filePath),
+
+  listRecycleBin: () => ipcRenderer.invoke("recycleBin:list"),
+  restoreFromRecycleBin: (fileId: string) => ipcRenderer.invoke("recycleBin:restore", fileId),
+  purgeFromRecycleBin: (fileId: string) => ipcRenderer.invoke("recycleBin:purge", fileId),
+  purgeAllFromRecycleBin: () => ipcRenderer.invoke("recycleBin:purgeAll"),
 
   // Categories
   getAllCategories: () => ipcRenderer.invoke("category:getAll"),
@@ -46,6 +52,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Dashboard
   getDashboardStats: () => ipcRenderer.invoke("dashboard:stats"),
+  getRecentActivity: (limit?: number) => ipcRenderer.invoke("dashboard:recent", limit),
 
   // Shell
   openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
@@ -64,6 +71,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("import:progress", callback);
     return () => ipcRenderer.removeListener("import:progress", callback);
   },
+
+  pauseImport: (taskId: string) => ipcRenderer.invoke("import:pause", taskId),
+  resumeImport: (taskId: string) => ipcRenderer.invoke("import:resume", taskId),
+  cancelImport: (taskId: string) => ipcRenderer.invoke("import:cancel", taskId),
 
   onNotification: (callback: (event: unknown, item: unknown) => void) => {
     ipcRenderer.on("notification:new", callback);

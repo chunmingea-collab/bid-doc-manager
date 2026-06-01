@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Image, Input, Button, Space, Tag, Tooltip, message, Typography, Statistic } from 'antd';
 import {
   SaveOutlined,
-  CheckOutlined,
   CloseOutlined,
   ColumnWidthOutlined,
   DiffOutlined,
@@ -132,8 +131,8 @@ const OcrCorrectionPanel: React.FC<OcrCorrectionProps> = ({
     try {
       await onSave?.(fileId, editedText);
       message.success('修正已保存');
-    } catch {
-      message.error('保存失败，请重试');
+    } catch (err) {
+      message.error(`保存失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsSaving(false);
     }

@@ -4,6 +4,7 @@ import { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } from "r
 import Dashboard from "./pages/Dashboard";
 import ImportPage from "./pages/Import";
 import DocumentsPage from "./pages/Documents";
+import RecycleBinPage from "./pages/RecycleBin";
 import SettingsPage from "./pages/Settings";
 import ErrorBoundary from "./components/ErrorBoundary";
 import NotificationCenter from "./components/NotificationCenter";
@@ -15,6 +16,7 @@ const menuItems = [
   { key: "/dashboard", label: "首页" },
   { key: "/import", label: "导入" },
   { key: "/documents", label: "资料管理" },
+  { key: "/recycle-bin", label: "回收站" },
   { key: "/settings", label: "设置" },
 ];
 
@@ -97,6 +99,7 @@ function AppShell(): React.ReactElement {
               <Route path="/dashboard" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
               <Route path="/import" element={<ErrorBoundary><ImportPage /></ErrorBoundary>} />
               <Route path="/documents" element={<ErrorBoundary><DocumentsPage /></ErrorBoundary>} />
+              <Route path="/recycle-bin" element={<ErrorBoundary><RecycleBinPage /></ErrorBoundary>} />
               <Route path="/settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>

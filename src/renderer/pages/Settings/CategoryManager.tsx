@@ -28,7 +28,6 @@ const { Title } = Typography;
 
 function buildTree(categories: CategoryRule[]): DataNode[] {
   const map = new Map<string, DataNode[]>();
-  const roots: DataNode[] = [];
 
   for (const cat of categories) {
     const node: DataNode = {
@@ -68,7 +67,6 @@ function buildTree(categories: CategoryRule[]): DataNode[] {
 const CategoryManager: React.FC = () => {
   const {
     categories,
-    initialized,
     initialize,
     addCategory,
     updateCategory,

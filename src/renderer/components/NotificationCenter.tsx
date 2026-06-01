@@ -50,7 +50,7 @@ export default function NotificationCenter(): React.ReactElement {
   }, [load]);
 
   // Tap a notification → jump to dashboard (the source of all reminders)
-  const handleSelect = (item: NotificationItem) => {
+  const handleSelect = (_item: NotificationItem) => {
     setOpen(false);
     void navigate("/dashboard");
   };

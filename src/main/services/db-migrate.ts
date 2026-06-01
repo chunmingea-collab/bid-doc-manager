@@ -96,3 +96,20 @@ export async function removeFtsEntry(fileId: string): Promise<void> {
     // non-fatal — FTS5 may not exist yet, search falls back
   }
 }
+
+/**
+ * Bulk variant: remove several FTS rows in a single statement. Skips the
+ * try/catch for each id — failures are surfaced to the caller.
+ */
+export async function removeFtsEntries(fileIds: string[]): Promise<void> {
+  if (fileIds.length === 0) return;
+  try {
+    const placeholders = fileIds.map(() => "?").join(",");
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM file_fts WHERE id IN (${placeholders})`,
+      ...fileIds,
+    );
+  } catch {
+    // non-fatal — FTS5 may not exist yet, search falls back
+  }
+}

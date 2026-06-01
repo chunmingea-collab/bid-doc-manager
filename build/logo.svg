@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- 印章方形背景 -->
+  <rect x="32" y="32" width="960" height="960" rx="60" ry="60"
+        fill="#FAF3E0" stroke="#8E2A20" stroke-width="16"/>
+  <!-- 内边框（双线） -->
+  <rect x="80" y="80" width="864" height="864" rx="30" ry="30"
+        fill="none" stroke="#8E2A20" stroke-width="6"/>
+
+  <!-- 主体「投」字（粗壮楷体感觉） -->
+  <text x="512" y="700"
+        font-family="'STKaiti','KaiTi','SimSun','Noto Serif CJK SC',serif"
+        font-size="640"
+        font-weight="900"
+        text-anchor="middle"
+        fill="#C0392B"
+        stroke="#8E2A20"
+        stroke-width="6">投</text>
+
+  <!-- 底部署名：竖排「资料通」三字，印章右侧 -->
+  <g fill="#8E2A20" font-family="'STKaiti','KaiTi',serif" font-size="64" font-weight="700">
+    <text x="900" y="220" text-anchor="end" transform="rotate(0 900 220)">资</text>
+    <text x="900" y="320" text-anchor="end">料</text>
+    <text x="900" y="420" text-anchor="end">通</text>
+  </g>
+
+  <!-- 顶部装饰：投标相关的小印章 -->
+  <g transform="translate(160 200)">
+    <circle r="50" fill="#C0392B" stroke="#8E2A20" stroke-width="4"/>
+    <text y="20" font-family="serif" font-size="60" font-weight="900"
+          text-anchor="middle" fill="#FAF3E0">标</text>
+  </g>
+</svg>

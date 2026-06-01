@@ -11,6 +11,7 @@ export const SETTINGS_DEFAULTS = {
   startupReminderEnabled: true as boolean,
   importMaxFileSizeMb: 100 as number,
   importConcurrency: 4 as number,
+  duplicateAction: "keep_both" as "overwrite" | "keep_both" | "skip",
   autoBackupOnQuit: false as boolean,
   lastReminderShownDate: "" as string,
   lastBackupAt: "" as string,

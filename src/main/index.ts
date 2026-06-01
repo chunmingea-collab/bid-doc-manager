@@ -39,6 +39,7 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: Math.min(1280, screenWidth),
     height: Math.min(800, screenHeight),
+    icon: path.join(app.getAppPath(), "build", "icon.png"),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

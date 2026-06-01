@@ -4,6 +4,6 @@ import { vi } from "vitest";
 // imported in the Node-only test environment without crashing.
 vi.mock("electron", () => ({
   app: {
-    getPath: (_name: string) => process.cwd(),
+    getPath: () => process.cwd(),
   },
 }));

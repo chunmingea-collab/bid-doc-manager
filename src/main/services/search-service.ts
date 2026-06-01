@@ -32,6 +32,7 @@ const FILE_TYPE_EXTENSIONS: Record<string, string[]> = {
 function buildFtsMatchQuery(raw: string): string | null {
   const tokens = raw
     .replace(/["']/g, " ")
+    // eslint-disable-next-line no-irregular-whitespace -- U+3000 (ideographic space) is intentional for Chinese tokenization
     .split(/[\s,　、。，；：]+/)
     .map((t) => t.trim())
     .filter((t) => t.length > 0);

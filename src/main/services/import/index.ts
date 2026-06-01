@@ -10,6 +10,7 @@ import { recognizeText } from "../ocr/ocr-service";
 import { classifyDocument, invalidateCache } from "../classifier/classifier";
 import { extractKeyInfo } from "../classifier/key-info-extractor";
 import { logger } from "../logger";
+import { removeFtsEntries } from "../db-migrate";
 
 const SUPPORTED_EXTENSIONS = new Set([
   ".pdf", ".doc", ".docx", ".xls", ".xlsx",
@@ -19,6 +20,46 @@ const SUPPORTED_EXTENSIONS = new Set([
 
 const DEFAULT_MAX_FILE_SIZE = 100 * 1024 * 1024;
 const MAX_CONCURRENT = 4;
+
+/**
+ * Live-control state for a running import task.
+ * - `controller` signals abort (cancellation).
+ * - `pauseState.promise` resolves when the user resumes (null when not paused).
+ */
+const taskControls = new Map<
+  string,
+  { controller: AbortController; pauseState: { promise: Promise<void> | null; resume?: () => void } }
+>();
+
+export function pauseImportTask(taskId: string): boolean {
+  const c = taskControls.get(taskId);
+  if (!c) return false;
+  if (c.pauseState.promise) return false;
+  c.pauseState.promise = new Promise<void>((resolve) => {
+    c.pauseState.resume = resolve;
+  });
+  return true;
+}
+
+export function resumeImportTask(taskId: string): boolean {
+  const c = taskControls.get(taskId);
+  if (!c || !c.pauseState.promise) return false;
+  c.pauseState.resume?.();
+  c.pauseState.promise = null;
+  return true;
+}
+
+export function cancelImportTask(taskId: string): boolean {
+  const c = taskControls.get(taskId);
+  if (!c) return false;
+  c.controller.abort();
+  if (c.pauseState.promise) {
+    // Wake the worker so it can observe the abort.
+    c.pauseState.resume?.();
+    c.pauseState.promise = null;
+  }
+  return true;
+}
 
 export interface ScannedFile {
   path: string;
@@ -53,6 +94,13 @@ export type DuplicateAction = "overwrite" | "keep_both" | "skip";
 export interface ImportOptions {
   duplicateAction: DuplicateAction;
   onProgress?: (progress: ImportProgress) => void;
+  /** Caller-supplied AbortController; the import aborts when this fires. */
+  signal?: AbortSignal;
+  /**
+   * Called before each work item; resolves when the worker may proceed.
+   * Used to implement pause (return a pending promise until resumed).
+   */
+  beforeItem?: () => Promise<void>;
 }
 
 export interface ImportResult {
@@ -406,23 +454,38 @@ async function runWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
   fn: (item: T, index: number) => Promise<R>,
+  options: { signal?: AbortSignal; beforeItem?: () => Promise<void> } = {},
 ): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let index = 0;
+  let aborted = false;
 
   async function worker(): Promise<void> {
     while (index < items.length) {
+      if (options.signal?.aborted) {
+        aborted = true;
+        return;
+      }
+      if (options.beforeItem) {
+        await options.beforeItem();
+      }
+      if (options.signal?.aborted) {
+        aborted = true;
+        return;
+      }
       const current = index++;
       results[current] = await fn(items[current], current);
     }
   }
 
   const workers: Promise<void>[] = [];
-  for (let i = 0; i < Math.min(concurrency, items.length); i++) {
+  const effectiveConcurrency = Math.min(concurrency, items.length);
+  for (let i = 0; i < effectiveConcurrency; i++) {
     workers.push(worker());
   }
   await Promise.all(workers);
-  return results;
+  // Trim to actual processed length so callers can iterate cleanly.
+  return aborted ? results.slice(0, index) : results;
 }
 
 export async function importFiles(
@@ -445,66 +508,127 @@ export async function importFiles(
     },
   });
 
+  // Register the live controls so pause/cancel IPCs can find this task.
+  const controller = new AbortController();
+  const pauseState: { promise: Promise<void> | null; resume?: () => void } = { promise: null };
+  taskControls.set(task.id, { controller, pauseState });
+
+  const beforeItem = async (): Promise<void> => {
+    if (controller.signal.aborted) return;
+    if (pauseState.promise) {
+      await prisma.importTask.update({
+        where: { id: task.id },
+        data: { status: "paused" },
+      }).catch(() => {});
+      await pauseState.promise;
+      await prisma.importTask.update({
+        where: { id: task.id },
+        data: { status: "running" },
+      }).catch(() => {});
+    }
+  };
+
   let importedCount = 0;
   let skippedCount = 0;
   let errorCount = 0;
   const errors: { file: string; error: string }[] = [];
   const importedFiles: Array<{ file: ScannedFile; fileId: string }> = [];
+  let processedSoFar = 0;
 
-  const emitProgress = (processedFiles: number, currentFile: string, phase: ImportProgress["phase"]) => {
+  const emitProgress = (currentFile: string, phase: ImportProgress["phase"]) => {
     options.onProgress?.({
       taskId: task.id,
       phase,
       totalFiles: scannedFiles.length,
-      processedFiles,
+      processedFiles: processedSoFar,
       currentFile,
-      percentage: Math.round((processedFiles / scannedFiles.length) * 100),
-      status: "running",
+      percentage: Math.round((processedSoFar / scannedFiles.length) * 100),
+      status: controller.signal.aborted ? "failed" : "running",
       importedCount,
       skippedCount,
       errorCount,
     });
   };
 
-  // Phase 1: Save records
-  await runWithConcurrency(scannedFiles, MAX_CONCURRENT, async (file, idx) => {
-    const result = await processSingleFile(file, options.duplicateAction, task.id);
+  try {
+    // Phase 1: Save records
+    await runWithConcurrency(
+      scannedFiles,
+      MAX_CONCURRENT,
+      async (file, idx) => {
+        if (controller.signal.aborted) return { file, result: { status: "skipped" as const } };
+        const result = await processSingleFile(file, options.duplicateAction, task.id);
 
-    if (result.status === "imported" && result.fileId) {
-      importedCount++;
-      importedFiles.push({ file, fileId: result.fileId });
-    } else if (result.status === "skipped") {
-      skippedCount++;
-    } else {
-      errorCount++;
-      errors.push({ file: file.fileName, error: result.error ?? "未知错误" });
-    }
+        if (result.status === "imported" && result.fileId) {
+          importedCount++;
+          importedFiles.push({ file, fileId: result.fileId });
+        } else if (result.status === "skipped") {
+          skippedCount++;
+        } else {
+          errorCount++;
+          errors.push({ file: file.fileName, error: result.error ?? "未知错误" });
+        }
 
-    if (idx % 5 === 0) {
-      emitProgress(idx + 1, file.fileName, "saving");
-    }
+        processedSoFar = idx + 1;
+        if (idx % 5 === 0 || idx === scannedFiles.length - 1) {
+          emitProgress(file.fileName, "saving");
+        }
 
-    return { file, result };
-  });
+        return { file, result };
+      },
+      { signal: controller.signal, beforeItem },
+    );
 
-  // Phase 2: Pipeline
-  await runWithConcurrency(importedFiles, MAX_CONCURRENT, async ({ file, fileId }) => {
+    // Phase 2: Pipeline
+    await runWithConcurrency(
+      importedFiles,
+      MAX_CONCURRENT,
+      async ({ file, fileId }) => {
+        if (controller.signal.aborted) return undefined;
+        try {
+          await processPipeline(fileId, file.path, file.fileName, file.extension, (phase) => {
+            emitProgress(file.fileName, phase as ImportProgress["phase"]);
+          });
+        } catch (err) {
+          logger.error(`[import] pipeline failed for ${file.fileName}:`, err);
+        }
+        return undefined;
+      },
+      { signal: controller.signal, beforeItem },
+    );
+  } finally {
+    taskControls.delete(task.id);
+  }
+
+  const cancelled = controller.signal.aborted;
+
+  // On cancel, clean up any phase-1 records that didn't get their phase-2
+  // pipeline update — they would otherwise linger as `importStatus: "pending"`
+  // and pollute the documents list.
+  if (cancelled) {
     try {
-      await processPipeline(fileId, file.path, file.fileName, file.extension, (phase) => {
-        const p = importedFiles.findIndex((f) => f.fileId === fileId);
-        emitProgress(p + 1, file.fileName, phase as ImportProgress["phase"]);
+      const stale = await prisma.file.findMany({
+        where: { importTaskId: task.id, importStatus: "pending" },
+        select: { id: true },
       });
+      if (stale.length > 0) {
+        const ids = stale.map((f) => f.id);
+        await prisma.file.deleteMany({ where: { id: { in: ids } } });
+        await removeFtsEntries(ids);
+      }
     } catch (err) {
-      logger.error(`[import] pipeline failed for ${file.fileName}:`, err);
+      logger.error("[import] failed to clean up cancelled task files:", err);
     }
-  });
+  }
 
-  const finalStatus = errorCount > 0 && importedCount === 0 ? "failed" : "completed";
+  const finalStatus = cancelled
+    ? "failed"
+    : (errorCount > 0 && importedCount === 0 ? "failed" : "completed");
   await prisma.importTask.update({
     where: { id: task.id },
     data: {
       status: finalStatus,
-      processedFiles: scannedFiles.length,
+      processedFiles: cancelled ? processedSoFar : scannedFiles.length,
       errorCount,
       errors: errors.length > 0 ? JSON.stringify(errors) : undefined,
     },
@@ -514,10 +638,10 @@ export async function importFiles(
     taskId: task.id,
     phase: "done",
     totalFiles: scannedFiles.length,
-    processedFiles: scannedFiles.length,
+    processedFiles: cancelled ? processedSoFar : scannedFiles.length,
     currentFile: "",
     percentage: 100,
-    status: finalStatus === "failed" ? "failed" : "completed",
+    status: cancelled ? "failed" : (finalStatus === "failed" ? "failed" : "completed"),
     importedCount,
     skippedCount,
     errorCount,

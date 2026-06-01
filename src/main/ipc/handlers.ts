@@ -3,6 +3,9 @@ import * as path from "path";
 import {
   scanFolder,
   importFiles,
+  pauseImportTask,
+  resumeImportTask,
+  cancelImportTask,
   type ScanResult,
   type ScannedFile,
   type DuplicateAction,
@@ -89,6 +92,22 @@ export function registerIpcHandlers(): void {
     });
   }));
 
+  // --- Import: Pause / Resume / Cancel ---
+  ipcMain.handle("import:pause", safeHandler(async (_event, taskId: string) => {
+    const ok = pauseImportTask(taskId);
+    return { paused: ok };
+  }));
+
+  ipcMain.handle("import:resume", safeHandler(async (_event, taskId: string) => {
+    const ok = resumeImportTask(taskId);
+    return { resumed: ok };
+  }));
+
+  ipcMain.handle("import:cancel", safeHandler(async (_event, taskId: string) => {
+    const ok = cancelImportTask(taskId);
+    return { cancelled: ok };
+  }));
+
   // --- OCR Status ---
   ipcMain.handle("ocr:status", safeHandler(async () => {
     return getOcrAvailable();
@@ -111,6 +130,31 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("shell:openPath", safeHandler(async (_event, filePath: string) => {
     shell.showItemInFolder(filePath);
   }));
+
+  // Read a single file's bytes for in-app preview (PDF, image, etc.).
+  // The renderer can't `fs.readFile` directly under contextIsolation, so the
+  // main process brokers the bytes. We cap at 50 MB to prevent OOM.
+  ipcMain.handle(
+    "file:read",
+    safeHandler(async (_event, filePath: string): Promise<{ bytes: number[]; mime: string }> => {
+      const fs = await import("fs/promises");
+      const stat = await fs.stat(filePath);
+      if (stat.size > 50 * 1024 * 1024) {
+        throw new Error(`文件过大（${(stat.size / 1024 / 1024).toFixed(1)} MB），无法在应用内预览。请使用「在文件夹中显示」打开。`);
+      }
+      const buf = await fs.readFile(filePath);
+      const ext = filePath.toLowerCase().split(".").pop() ?? "";
+      const mime =
+        ext === "pdf" ? "application/pdf" :
+        ext === "png" ? "image/png" :
+        ext === "jpg" || ext === "jpeg" ? "image/jpeg" :
+        ext === "gif" ? "image/gif" :
+        ext === "webp" ? "image/webp" :
+        ext === "bmp" ? "image/bmp" :
+        "application/octet-stream";
+      return { bytes: Array.from(buf), mime };
+    }),
+  );
 
   // --- Export ---
   ipcMain.handle("export:excel", safeHandler(async (_event, { fileIds }: { fileIds: string[] }) => {
@@ -199,6 +243,65 @@ export function registerIpcHandlers(): void {
     return { success: true };
   }));
 
+  // --- Recycle bin ---
+  ipcMain.handle(
+    "recycleBin:list",
+    safeHandler(async () => {
+      const rows = await prisma.file.findMany({
+        where: { isDeleted: true },
+        orderBy: { deletedAt: "desc" },
+        select: {
+          id: true,
+          fileName: true,
+          extension: true,
+          originalPath: true,
+          size: true,
+          deletedAt: true,
+        },
+      });
+      return rows;
+    }),
+  );
+
+  ipcMain.handle(
+    "recycleBin:restore",
+    safeHandler(async (_event, fileId: string) => {
+      const file = await prisma.file.findUnique({ where: { id: fileId } });
+      if (!file) throw new Error("文件不存在");
+      if (!file.isDeleted) throw new Error("文件未在回收站中");
+      await prisma.file.update({
+        where: { id: fileId },
+        data: { isDeleted: false, deletedAt: null },
+      });
+      // Re-add the FTS5 row.
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO file_fts(id, fileName, extractedText, correctedText)
+         VALUES (?, ?, ?, COALESCE(?, ''))`,
+        file.id,
+        file.fileName,
+        file.extractedText,
+        file.correctedText,
+      );
+      return { success: true };
+    }),
+  );
+
+  ipcMain.handle(
+    "recycleBin:purge",
+    safeHandler(async (_event, fileId: string) => {
+      await prisma.file.delete({ where: { id: fileId } });
+      return { success: true };
+    }),
+  );
+
+  ipcMain.handle(
+    "recycleBin:purgeAll",
+    safeHandler(async () => {
+      const result = await prisma.file.deleteMany({ where: { isDeleted: true } });
+      return { purged: result.count };
+    }),
+  );
+
   // --- Correct Text ---
   ipcMain.handle("file:correctText", safeHandler(async (_event, { fileId, correctedText }: { fileId: string; correctedText: string }) => {
     await prisma.file.update({
@@ -271,6 +374,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("dashboard:stats", safeHandler(async (): Promise<DashboardStats> => {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     const days90 = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
     const days90Iso = `${days90.getFullYear()}-${String(days90.getMonth() + 1).padStart(2, "0")}-${String(days90.getDate()).padStart(2, "0")}`;
 
@@ -278,11 +382,43 @@ export function registerIpcHandlers(): void {
       prisma.file.count({ where: { isDeleted: false } }),
       prisma.file.count({ where: { isDeleted: false, createdAt: { gte: monthStart } } }),
       prisma.file.count({ where: { isDeleted: false, importStatus: "error" } }),
-      prisma.file.count({ where: { isDeleted: false, expiryDate: { not: null, lte: days90Iso } } }),
+      // "Expiring" = not yet expired AND expiring within 90 days.
+      prisma.file.count({
+        where: {
+          isDeleted: false,
+          expiryDate: { not: null, gte: todayIso, lte: days90Iso },
+        },
+      }),
     ]);
 
     return { totalCount, thisMonthCount, errorCount, expiringCount };
   }));
+
+  ipcMain.handle(
+    "dashboard:recent",
+    safeHandler(async (_event, limit?: number): Promise<Array<{ id: string; fileName: string; category: string | null; importStatus: string; createdAt: string }>> => {
+      const take = Math.min(Math.max(limit ?? 10, 1), 50);
+      const rows = await prisma.file.findMany({
+        where: { isDeleted: false },
+        orderBy: { createdAt: "desc" },
+        take,
+        select: {
+          id: true,
+          fileName: true,
+          importStatus: true,
+          createdAt: true,
+          category: { select: { name: true } },
+        },
+      });
+      return rows.map((r) => ({
+        id: r.id,
+        fileName: r.fileName,
+        category: r.category?.name ?? null,
+        importStatus: r.importStatus,
+        createdAt: r.createdAt.toISOString(),
+      }));
+    }),
+  );
 
   // --- Settings ---
   ipcMain.handle("settings:getAll", safeHandler(async () => {

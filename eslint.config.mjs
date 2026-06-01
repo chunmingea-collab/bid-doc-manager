@@ -1,0 +1,74 @@
+import js from "@eslint/js";
+import tseslint from "typescript-eslint";
+import reactHooks from "eslint-plugin-react-hooks";
+import reactRefresh from "eslint-plugin-react-refresh";
+import globals from "globals";
+
+const nodeGlobals = {
+  ...globals.node,
+  ...globals.es2022,
+};
+
+const browserGlobals = {
+  ...globals.browser,
+  ...globals.es2022,
+  React: "readonly",
+  JSX: "readonly",
+};
+
+export default tseslint.config(
+  {
+    ignores: [
+      "dist/**",
+      "dist-electron/**",
+      "release/**",
+      "node_modules/**",
+      "vendor/**",
+      ".venv-paddleocr/**",
+      "e2e/**",
+      "build/**",
+      "playwright-report/**",
+      "test-results/**",
+      "scripts/**",
+    ],
+  },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  {
+    files: ["src/renderer/**/*.{ts,tsx}"],
+    plugins: {
+      "react-hooks": reactHooks,
+      "react-refresh": reactRefresh,
+    },
+    languageOptions: { globals: browserGlobals },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      "react-refresh/only-export-components": "off",
+      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+      "@typescript-eslint/no-empty-object-type": "off",
+    },
+  },
+  {
+    files: [
+      "src/main/**/*.{ts,tsx}",
+      "src/utils/**/*.ts",
+      "src/preload/**/*.ts",
+      "tests/**/*.ts",
+    ],
+    languageOptions: { globals: nodeGlobals },
+    rules: {
+      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+      "@typescript-eslint/no-empty-object-type": "off",
+      // Allow `require()` in the bundled CJS preload entry & main entry.
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
+);

@@ -1,4 +1,4 @@
-import { app, Menu, BrowserWindow, shell } from "electron";
+import { Menu, BrowserWindow, shell } from "electron";
 
 export function buildMenu(): void {
   const isMac = process.platform === "darwin";

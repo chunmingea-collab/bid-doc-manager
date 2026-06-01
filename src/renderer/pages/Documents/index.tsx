@@ -2,15 +2,18 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Button,
   Card,
+  Descriptions,
   Input,
+  Modal,
+  Popconfirm,
   Select,
   Space,
   Table,
+  Tabs,
   Tag,
+  Tooltip,
   Typography,
-  Popconfirm,
   message,
-  Modal,
 } from 'antd';
 import {
   SearchOutlined,
@@ -25,6 +28,8 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import OcrCorrectionPanel from '../../components/OcrCorrectionPanel';
+import PdfPreview from '../../components/PdfPreview';
+import { formatError } from '../../utils/errors';
 
 const { Title } = Typography;
 const { Search } = Input;
@@ -39,6 +44,9 @@ interface DocumentRecord {
   size: number;
   expiryDate?: string;
   companyName?: string;
+  personName?: string;
+  qualificationLevel?: string;
+  certificateNumber?: string;
   importStatus: string;
   extractedText?: string;
   correctedText?: string;
@@ -82,6 +90,110 @@ const statusLabelMap: Record<string, string> = {
   error: '出错',
 };
 
+// Highlight matches in `text` using the precomputed hit offsets.
+function highlight(
+  text: string,
+  field: 'fileName' | 'extractedText',
+  hits: { field: 'fileName' | 'extractedText'; start: number; end: number }[],
+): React.ReactNode {
+  if (hits.length === 0) return text;
+  const fieldHits = hits.filter((h) => h.field === field).sort((a, b) => a.start - b.start);
+  if (fieldHits.length === 0) return text;
+  const out: React.ReactNode[] = [];
+  let cursor = 0;
+  for (let i = 0; i < fieldHits.length; i++) {
+    const h = fieldHits[i];
+    if (h.start < cursor) continue;
+    if (h.start > cursor) out.push(text.slice(cursor, h.start));
+    out.push(
+      <mark key={`${field}-${i}`} style={{ background: '#ffe58f', padding: '0 2px', borderRadius: 2 }}>
+        {text.slice(h.start, h.end)}
+      </mark>,
+    );
+    cursor = h.end;
+  }
+  if (cursor < text.length) out.push(text.slice(cursor));
+  return out;
+}
+
+interface PreviewBodyProps {
+  doc: DocumentRecord;
+  hits: { field: 'fileName' | 'extractedText'; start: number; end: number }[];
+  onOpenInFolder: () => void;
+}
+
+const PreviewBody: React.FC<PreviewBodyProps> = ({ doc, hits, onOpenInFolder }) => {
+  const ft = extensionToFileType(doc.extension);
+  return (
+    <div>
+      <Descriptions size="small" column={3} bordered style={{ marginBottom: 16 }}>
+        <Descriptions.Item label="文件名">
+          {highlight(doc.fileName, 'fileName', hits)}
+        </Descriptions.Item>
+        <Descriptions.Item label="分类">{doc.category || '未分类'}</Descriptions.Item>
+        <Descriptions.Item label="大小">{formatFileSize(doc.size)}</Descriptions.Item>
+        <Descriptions.Item label="路径" span={3}>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>{doc.originalPath}</Typography.Text>
+        </Descriptions.Item>
+        {doc.companyName && (
+          <Descriptions.Item label="企业名称">{doc.companyName}</Descriptions.Item>
+        )}
+        {doc.certificateNumber && (
+          <Descriptions.Item label="证书编号">{doc.certificateNumber}</Descriptions.Item>
+        )}
+        {doc.expiryDate && (
+          <Descriptions.Item label="有效期至">{doc.expiryDate}</Descriptions.Item>
+        )}
+      </Descriptions>
+
+      <Tabs
+        defaultActiveKey={ft === 'PDF' || ft === 'IMAGE' ? 'preview' : 'text'}
+        items={[
+          ...((ft === 'PDF' || ft === 'IMAGE')
+            ? [{
+                key: 'preview',
+                label: '预览',
+                children: (
+                  <PdfPreview
+                    filePath={doc.originalPath}
+                    fileName={doc.fileName}
+                    mode="full"
+                    height={500}
+                    onOpenExternal={onOpenInFolder}
+                  />
+                ),
+              }]
+            : []),
+          {
+            key: 'text',
+            label: '提取的文本',
+            children: (
+              <div
+                style={{
+                  maxHeight: 500,
+                  overflow: 'auto',
+                  padding: 12,
+                  background: '#fafafa',
+                  border: '1px solid #f0f0f0',
+                  borderRadius: 4,
+                  fontFamily: 'monospace',
+                  fontSize: 13,
+                  whiteSpace: 'pre-wrap',
+                  lineHeight: 1.6,
+                }}
+              >
+                {doc.extractedText
+                  ? highlight(doc.extractedText, 'extractedText', hits)
+                  : <Typography.Text type="secondary">此文件未提取到文本</Typography.Text>}
+              </div>
+            ),
+          },
+        ]}
+      />
+    </div>
+  );
+};
+
 const DocumentsPage: React.FC = () => {
   const navigate = useNavigate();
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
@@ -96,6 +208,9 @@ const DocumentsPage: React.FC = () => {
   const [categoryOptions, setCategoryOptions] = useState<Array<{ value: string; label: string }>>([]);
   const [ocrModalOpen, setOcrModalOpen] = useState(false);
   const [ocrDoc, setOcrDoc] = useState<DocumentRecord | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<DocumentRecord | null>(null);
+  const [searchHits, setSearchHits] = useState<{ field: 'fileName' | 'extractedText'; start: number; end: number }[]>([]);
 
   // Debounce timer for search input
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -124,7 +239,9 @@ const DocumentsPage: React.FC = () => {
         { value: '', label: '全部分类' },
         ...cats.filter((c) => !c.parentId).map((c) => ({ value: c.id, label: c.name })),
       ]);
-    } catch {
+    } catch (err) {
+      message.error(`加载分类失败：${formatError(err)}`);
+      setCategoryOptions([{ value: '', label: '全部分类' }]);
       setCategoryOptions([
         { value: '', label: '全部分类' },
         { value: 'qualification', label: '企业资质' },
@@ -179,7 +296,8 @@ const DocumentsPage: React.FC = () => {
       });
       setDocuments(mapped);
       setTotal(result.total);
-    } catch {
+    } catch (err) {
+      message.error(`加载资料失败：${formatError(err)}`);
       setDocuments([]);
       setTotal(0);
     } finally {
@@ -227,13 +345,46 @@ const DocumentsPage: React.FC = () => {
       message.success('已删除');
       setSelectedRowKeys((prev) => prev.filter((k) => k !== id));
       fetchDocuments(searchText, categoryFilter, typeFilter);
-    } catch {
-      message.error('删除失败');
+    } catch (err) {
+      message.error(`删除失败：${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
   const handleView = (record: DocumentRecord) => {
-    window.electronAPI.openPath(record.originalPath);
+    // In-app preview for PDF / images; fall back to OS for everything else.
+    const ft = extensionToFileType(record.extension);
+    if (ft === "PDF" || ft === "IMAGE") {
+      setPreviewDoc(record);
+      // Compute hit positions for the current search term, if any.
+      const term = searchText.trim();
+      const hits: { field: 'fileName' | 'extractedText'; start: number; end: number }[] = [];
+      if (term) {
+        const lowerTerm = term.toLowerCase();
+        const fileName = record.fileName ?? '';
+        const text = record.extractedText ?? '';
+        const scan = (haystack: string, field: 'fileName' | 'extractedText') => {
+          const lower = haystack.toLowerCase();
+          let from = 0;
+          while (from < lower.length) {
+            const idx = lower.indexOf(lowerTerm, from);
+            if (idx < 0) break;
+            hits.push({ field, start: idx, end: idx + lowerTerm.length });
+            from = idx + lowerTerm.length;
+            if (hits.length >= 200) return; // cap to keep UI snappy
+          }
+        };
+        scan(fileName, 'fileName');
+        scan(text, 'extractedText');
+      }
+      setSearchHits(hits);
+      setPreviewOpen(true);
+    } else {
+      window.electronAPI.openPath(record.originalPath);
+    }
+  };
+
+  const handleOpenInFolder = (filePath: string) => {
+    window.electronAPI.openPath(filePath);
   };
 
   const openOcrModal = (record: DocumentRecord) => {
@@ -247,8 +398,8 @@ const DocumentsPage: React.FC = () => {
       message.success('OCR 文字已保存');
       setOcrModalOpen(false);
       fetchDocuments(searchText, categoryFilter, typeFilter);
-    } catch {
-      message.error('保存失败');
+    } catch (err) {
+      message.error(`保存失败：${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -257,8 +408,8 @@ const DocumentsPage: React.FC = () => {
     try {
       const result = await window.electronAPI.exportToExcel({ fileIds: ids });
       message.success(`已导出 ${result.count} 条记录到 ${result.filePath}`);
-    } catch {
-      message.error('导出失败');
+    } catch (err) {
+      message.error(`导出失败：${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -267,8 +418,8 @@ const DocumentsPage: React.FC = () => {
     try {
       const result = await window.electronAPI.exportDocuments({ fileIds: ids });
       message.success(`已导出 ${result.count} 个文件`);
-    } catch {
-      message.error('导出失败');
+    } catch (err) {
+      message.error(`导出失败：${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -389,15 +540,22 @@ const DocumentsPage: React.FC = () => {
           <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleView(record)}>
             查看
           </Button>
-          <Button
-            type="link"
-            size="small"
-            icon={<EditOutlined />}
-            onClick={() => openOcrModal(record)}
-            disabled={!['IMAGE', 'PDF'].includes(extensionToFileType(record.extension))}
+          <Tooltip
+            title={
+              ['IMAGE', 'PDF'].includes(extensionToFileType(record.extension))
+                ? '修正此文件提取出的文字（OCR 或 PDF 文本层）'
+                : '查看并修正此文件已提取的文本内容'
+            }
           >
-            修正
-          </Button>
+            <Button
+              type="link"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => openOcrModal(record)}
+            >
+              修正
+            </Button>
+          </Tooltip>
           <Popconfirm
             title="确定要删除此文件吗？"
             onConfirm={() => handleDelete(record.id)}
@@ -528,6 +686,24 @@ const DocumentsPage: React.FC = () => {
             originalText={ocrDoc.correctedText || ocrDoc.extractedText || ''}
             onSave={handleCorrectTextSave}
             onClose={() => setOcrModalOpen(false)}
+          />
+        )}
+      </Modal>
+
+      <Modal
+        title={previewDoc ? `${previewDoc.fileName} — 预览` : '预览'}
+        open={previewOpen}
+        onCancel={() => setPreviewOpen(false)}
+        footer={null}
+        width="90%"
+        style={{ top: 24 }}
+        destroyOnClose
+      >
+        {previewDoc && (
+          <PreviewBody
+            doc={previewDoc}
+            hits={searchHits}
+            onOpenInFolder={() => handleOpenInFolder(previewDoc.originalPath)}
           />
         )}
       </Modal>

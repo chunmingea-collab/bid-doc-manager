@@ -38,6 +38,23 @@ export interface DashboardStats {
   expiringCount: number;
 }
 
+export interface RecentActivity {
+  id: string;
+  fileName: string;
+  category: string | null;
+  importStatus: string;
+  createdAt: string;
+}
+
+export interface RecycleBinItem {
+  id: string;
+  fileName: string;
+  extension: string;
+  originalPath: string;
+  size: number;
+  deletedAt: string;
+}
+
 export interface CategoryRuleType {
   id: string;
   name: string;
@@ -54,6 +71,7 @@ export interface AppSettings {
   startupReminderEnabled: boolean;
   importMaxFileSizeMb: number;
   importConcurrency: number;
+  duplicateAction: "overwrite" | "keep_both" | "skip";
   autoBackupOnQuit: boolean;
   lastReminderShownDate: string;
   lastBackupAt: string;
@@ -122,6 +140,13 @@ export interface ElectronAPI {
   // File operations
   deleteFile: (fileId: string) => Promise<{ success: boolean }>;
   correctText: (fileId: string, correctedText: string) => Promise<{ success: boolean }>;
+  readFileBytes: (filePath: string) => Promise<{ bytes: number[]; mime: string }>;
+
+  // Recycle bin
+  listRecycleBin: () => Promise<RecycleBinItem[]>;
+  restoreFromRecycleBin: (fileId: string) => Promise<{ success: boolean }>;
+  purgeFromRecycleBin: (fileId: string) => Promise<{ success: boolean }>;
+  purgeAllFromRecycleBin: () => Promise<{ purged: number }>;
 
   // Categories
   getAllCategories: () => Promise<CategoryRuleType[]>;
@@ -132,6 +157,7 @@ export interface ElectronAPI {
 
   // Dashboard
   getDashboardStats: () => Promise<DashboardStats>;
+  getRecentActivity: (limit?: number) => Promise<RecentActivity[]>;
 
   // Shell
   openExternal: (url: string) => Promise<void>;
@@ -147,6 +173,9 @@ export interface ElectronAPI {
 
   // Event listeners
   onImportProgress: (callback: (event: unknown, progress: ImportProgressType) => void) => () => void;
+  pauseImport: (taskId: string) => Promise<{ paused: boolean }>;
+  resumeImport: (taskId: string) => Promise<{ resumed: boolean }>;
+  cancelImport: (taskId: string) => Promise<{ cancelled: boolean }>;
   onNotification: (callback: (event: unknown, item: NotificationItem) => void) => () => void;
   onStartupReminder: (callback: (event: unknown, item: NotificationItem) => void) => () => void;
   onNotificationOpen: (callback: (event: unknown, payload: { route: string }) => void) => () => void;

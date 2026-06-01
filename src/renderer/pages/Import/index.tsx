@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect } from "react";
 import {
   Button,
   Card,
@@ -11,14 +11,21 @@ import {
   Empty,
   Result,
   theme,
+  Popconfirm,
+  Alert,
+  message,
 } from "antd";
 import {
   FolderOpenOutlined,
   InboxOutlined,
   FileTextOutlined,
   PlayCircleOutlined,
+  PauseCircleOutlined,
+  PlayCircleFilled,
+  StopOutlined,
 } from "@ant-design/icons";
 import { useImportStore } from "../../store/import-store";
+import { formatError } from "../../utils/errors";
 
 const { Text } = Typography;
 
@@ -36,12 +43,22 @@ export default function ImportPage() {
   const progress = useImportStore((s) => s.progress);
   const result = useImportStore((s) => s.result);
   const duplicateAction = useImportStore((s) => s.duplicateAction);
+  const isPaused = useImportStore((s) => s.isPaused);
+  const isCancelling = useImportStore((s) => s.isCancelling);
 
   const setPhase = useImportStore((s) => s.setPhase);
   const setDuplicateAction = useImportStore((s) => s.setDuplicateAction);
   const startScan = useImportStore((s) => s.startScan);
   const startImport = useImportStore((s) => s.startImport);
+  const pauseImport = useImportStore((s) => s.pauseImport);
+  const resumeImport = useImportStore((s) => s.resumeImport);
+  const cancelImport = useImportStore((s) => s.cancelImport);
   const reset = useImportStore((s) => s.reset);
+  const hydrateFromSettings = useImportStore((s) => s.hydrateFromSettings);
+
+  useEffect(() => {
+    hydrateFromSettings();
+  }, [hydrateFromSettings]);
 
   const isDisabled = phase === "scanning" || phase === "importing";
 
@@ -49,13 +66,21 @@ export default function ImportPage() {
     if (!window.electronAPI?.openDirectory || isDisabled) return;
     const dir = await window.electronAPI.openDirectory();
     if (dir) {
-      await startScan(dir);
+      try {
+        await startScan(dir);
+      } catch (err) {
+        message.error(`扫描失败：${formatError(err)}`);
+      }
     }
   }, [startScan, isDisabled]);
 
-  const handleStartImport = useCallback(() => {
+  const handleStartImport = useCallback(async () => {
     if (scanResult && scanResult.files.length > 0) {
-      startImport(scanResult.files);
+      try {
+        await startImport(scanResult.files);
+      } catch (err) {
+        message.error(`启动导入失败：${formatError(err)}`);
+      }
     }
   }, [scanResult, startImport]);
 
@@ -133,7 +158,11 @@ export default function ImportPage() {
               <Text>重复文件处理：</Text>
               <Radio.Group
                 value={duplicateAction}
-                onChange={(e) => setDuplicateAction(e.target.value)}
+                onChange={(e) => {
+                  setDuplicateAction(e.target.value);
+                  // Persist as the new default for next time.
+                  window.electronAPI.setSetting("duplicateAction", e.target.value).catch(() => null);
+                }}
               >
                 <Radio.Button value="keep_both">保留两份</Radio.Button>
                 <Radio.Button value="overwrite">覆盖</Radio.Button>
@@ -148,6 +177,7 @@ export default function ImportPage() {
           bordered
           size="small"
           dataSource={scanResult.files}
+          rowKey={(f) => f.path + ":" + f.md5}
           style={{ marginBottom: 24 }}
           renderItem={(file) => (
             <List.Item
@@ -179,11 +209,23 @@ export default function ImportPage() {
 
         <Card style={{ maxWidth: 600, margin: "0 auto" }}>
           <Space direction="vertical" style={{ width: "100%" }} size="large">
-            <Text strong>正在导入...</Text>
+            <Text strong>
+              {isCancelling
+                ? "正在取消..."
+                : isPaused
+                ? "已暂停"
+                : "正在导入..."}
+            </Text>
 
             <Progress
               percent={progress.percentage}
-              status={progress.status === "failed" ? "exception" : "active"}
+              status={
+                progress.status === "failed"
+                  ? "exception"
+                  : isPaused
+                  ? "normal"
+                  : "active"
+              }
               strokeColor={token.colorPrimary}
             />
 
@@ -191,7 +233,7 @@ export default function ImportPage() {
               <Text type="secondary">
                 已处理 {progress.processedFiles} / {progress.totalFiles} 个文件
               </Text>
-              {progress.currentFile && (
+              {progress.currentFile && !isCancelling && (
                 <Text type="secondary" ellipsis style={{ maxWidth: 500 }}>
                   当前: {progress.currentFile}
                 </Text>
@@ -199,6 +241,49 @@ export default function ImportPage() {
               {progress.errorCount > 0 && (
                 <Text type="danger">{progress.errorCount} 个文件处理失败</Text>
               )}
+            </Space>
+
+            {isPaused && (
+              <Alert
+                type="info"
+                showIcon
+                message="已暂停：当前文件完成后将停止处理新文件。"
+                style={{ width: "100%" }}
+              />
+            )}
+
+            <Space style={{ width: "100%", justifyContent: "flex-end" }}>
+              {isPaused ? (
+                <Button
+                  type="primary"
+                  icon={<PlayCircleFilled />}
+                  onClick={resumeImport}
+                  disabled={isCancelling}
+                >
+                  继续
+                </Button>
+              ) : (
+                <Button
+                  icon={<PauseCircleOutlined />}
+                  onClick={pauseImport}
+                  disabled={isCancelling}
+                >
+                  暂停
+                </Button>
+              )}
+              <Popconfirm
+                title="确定取消本次导入？"
+                description="已处理的进度会保留，但未处理的剩余文件将不会继续。"
+                onConfirm={cancelImport}
+                okText="取消导入"
+                cancelText="继续导入"
+                okButtonProps={{ danger: true }}
+                disabled={isCancelling}
+              >
+                <Button danger icon={<StopOutlined />} disabled={isCancelling}>
+                  取消导入
+                </Button>
+              </Popconfirm>
             </Space>
           </Space>
         </Card>
