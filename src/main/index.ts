@@ -1,3 +1,4 @@
+import "./services/test-mode";
 import { app, BrowserWindow, screen } from "electron";
 import path from "path";
 import { ensureUserDatabase, ensureFts5 } from "./services/db-migrate";
@@ -18,14 +19,17 @@ let mainWindow: BrowserWindow | null = null;
 let maintenanceHandle: { stop: () => void } | null = null;
 
 function getPreloadPath(): string {
-  return path.join(__dirname, "../preload/index.js");
+  // Use app.getAppPath() — reliable whether running via `electron .` (dev)
+  // or from an installed app.asar (prod). __dirname is unreliable in
+  // Rolldown-bundled CJS where it can resolve to the package root.
+  return path.join(app.getAppPath(), "dist-electron", "preload", "index.js");
 }
 
 function getRendererUrl(): string {
   if (process.env.VITE_DEV_SERVER_URL) {
     return process.env.VITE_DEV_SERVER_URL;
   }
-  return path.join(__dirname, "../../dist/index.html");
+  return path.join(app.getAppPath(), "dist", "index.html");
 }
 
 function createWindow(): void {
@@ -96,17 +100,21 @@ if (!gotLock) {
     await seedCategories();
     maintenanceHandle = scheduleMaintenance();
     buildMenu();
-    // Fire-and-forget OCR self-test so the result is cached before the UI asks
-    getOcrStatus(true).catch((err) => {
-      logger.warn("[ocr] self-test failed:", err);
-    });
-    startNotificationSchedule().catch((err) => {
-      logger.error("[notification] failed to start schedule:", err);
-    });
+
+    const isE2E = !!process.env.BID_DOC_E2E;
+    if (!isE2E) {
+      // Fire-and-forget OCR self-test so the result is cached before the UI asks
+      getOcrStatus(true).catch((err) => {
+        logger.warn("[ocr] self-test failed:", err);
+      });
+      startNotificationSchedule().catch((err) => {
+        logger.error("[notification] failed to start schedule:", err);
+      });
+    }
     createWindow();
 
     // Show the once-per-day startup reminder after the window is ready
-    if (mainWindow) {
+    if (!isE2E && mainWindow) {
       mainWindow.webContents.once("did-finish-load", () => {
         maybeShowStartupReminder()
           .then((item) => {

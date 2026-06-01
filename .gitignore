@@ -43,6 +43,11 @@ pnpm-debug.log*
 build/pyinstaller/
 build/*.spec
 
+# Playwright e2e output
+playwright-report/
+test-results/
+e2e/screenshots/
+
 # Database (exclude WAL)
 *.db-wal
 *.db-shm

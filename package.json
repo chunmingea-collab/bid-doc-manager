@@ -11,6 +11,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "pnpm build && playwright test",
+    "test:e2e:ui": "pnpm build && playwright test --ui",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy"
   },
@@ -28,6 +30,7 @@
   "license": "MIT",
   "packageManager": "pnpm@10.33.2",
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/adm-zip": "^0.5.8",
     "@types/archiver": "^7.0.0",
     "@types/node": "^25.9.1",
@@ -35,14 +38,14 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
     "@vitest/ui": "^4.1.7",
-    "vitest": "^4.1.7",
     "electron": "^28.3.3",
     "electron-builder": "^25.1.8",
     "prisma": "^5.22.0",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.14",
-    "vite-plugin-electron": "^0.29.1"
+    "vite-plugin-electron": "^0.29.1",
+    "vitest": "^4.1.7"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.3",
@@ -50,7 +53,7 @@
     "@types/fs-extra": "^11.0.4",
     "adm-zip": "^0.5.17",
     "antd": "^5.29.3",
-    "archiver": "^8.0.0",
+    "archiver": "7.0.1",
     "electron-log": "^5.4.4",
     "fs-extra": "^11.3.5",
     "mammoth": "^1.12.0",

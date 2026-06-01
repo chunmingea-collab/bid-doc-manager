@@ -2,21 +2,11 @@ import * as fs from "fs-extra";
 import * as path from "path";
 import os from "os";
 import { execFileSync } from "child_process";
-import { createRequire } from "module";
-import type { Archiver, ArchiverOptions } from "archiver";
+import archiver, { type Archiver } from "archiver";
 import AdmZip from "adm-zip";
 import { app } from "electron";
 import { prisma } from "../../utils/prisma";
 import { logger } from "./logger";
-
-// archiver is a CJS module that exports a function with extra props on it.
-// Use createRequire so both Vite (rolldown) and the CJS shim agree on the
-// shape, avoiding the "default is not exported" runtime error.
-const nodeRequire = createRequire(typeof __filename !== "undefined" ? __filename : import.meta.url);
-const archiver = nodeRequire("archiver") as (
-  format: string,
-  options?: ArchiverOptions,
-) => Archiver;
 
 function getDbPath(): string {
   try {
