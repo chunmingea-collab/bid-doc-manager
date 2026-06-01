@@ -1,7 +1,7 @@
 import "./services/test-mode";
 import { app, BrowserWindow, screen } from "electron";
 import path from "path";
-import { ensureUserDatabase, ensureFts5 } from "./services/db-migrate";
+import { ensureUserDatabase, ensureFts5, ensureColumnAdditions } from "./services/db-migrate";
 import { prisma } from "../utils/prisma";
 import { registerIpcHandlers } from "./ipc/handlers";
 import { seedCategories } from "./services/seed-service";
@@ -14,6 +14,7 @@ import {
 } from "./services/notification-service";
 import { buildMenu } from "./menu";
 import { logger } from "./services/logger";
+import { startAutoBackupScheduler } from "./services/auto-backup-scheduler";
 
 let mainWindow: BrowserWindow | null = null;
 let maintenanceHandle: { stop: () => void } | null = null;
@@ -95,11 +96,13 @@ if (!gotLock) {
     try {
       await ensureUserDatabase();
       await ensureFts5();
+      await ensureColumnAdditions();
     } catch (err) {
       logger.error("[app] failed to ensure user database:", err);
     }
     await seedCategories();
     maintenanceHandle = scheduleMaintenance();
+    startAutoBackupScheduler();
     buildMenu();
 
     const isE2E = !!process.env.BID_DOC_E2E;

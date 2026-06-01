@@ -4,6 +4,8 @@ import { prisma } from "../../utils/prisma";
  * Whitelisted user-preference keys with their default values and JSON-shape.
  * Add a key here, get a typed get/set out of the box.
  */
+export type AutoBackupCadence = "off" | "daily" | "weekly" | "onQuit";
+
 export const SETTINGS_DEFAULTS = {
   reminderDays: [30, 60, 90] as number[],
   reminderEnabled: true as boolean,
@@ -13,6 +15,9 @@ export const SETTINGS_DEFAULTS = {
   importConcurrency: 4 as number,
   duplicateAction: "keep_both" as "overwrite" | "keep_both" | "skip",
   autoBackupOnQuit: false as boolean,
+  autoBackupCadence: "off" as AutoBackupCadence,
+  autoBackupKeep: 7 as number,
+  autoBackupDir: "" as string,
   lastReminderShownDate: "" as string,
   lastBackupAt: "" as string,
   lastBackupPath: "" as string,

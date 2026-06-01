@@ -74,10 +74,15 @@ jobs:
       - name: Generate Prisma client
         run: pnpm prisma:generate
 
+      - name: Generate installer assets (icons + header BMP)
+        run: pnpm build:assets
+
       - name: Build installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm build
+          # Skip the Prisma-stub patch (only needed in dev)
+          SKIP_PRISMA_STUB_PATCH: "1"
+        run: pnpm build:win
 
       - name: Upload installer
         uses: actions/upload-artifact@v4

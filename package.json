@@ -18,7 +18,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "postinstall": "prisma generate && node scripts/patch-prisma-stub.js",
-    "patch:prisma": "node scripts/patch-prisma-stub.js"
+    "patch:prisma": "node scripts/patch-prisma-stub.js",
+    "build:assets": "node scripts/generate-logo.cjs && node scripts/pack-ico.cjs && node scripts/generate-installer-header.js"
   },
   "engines": {
     "node": ">=20.0.0 <23.0.0",

@@ -113,3 +113,20 @@ export async function removeFtsEntries(fileIds: string[]): Promise<void> {
     // non-fatal — FTS5 may not exist yet, search falls back
   }
 }
+
+/**
+ * Idempotent column additions for users on a pre-2.x schema. Each block
+ * checks PRAGMA table_info first so we never re-add an existing column.
+ */
+export async function ensureColumnAdditions(): Promise<void> {
+  // Category.color (P2-T15) — used by the category tree dot indicator
+  const catCols = await prisma.$queryRawUnsafe<{ name: string }[]>(
+    `PRAGMA table_info(Category)`,
+  );
+  if (!catCols.some((c) => c.name === "color")) {
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE Category ADD COLUMN color TEXT NOT NULL DEFAULT '#1677ff'`,
+    );
+    logger.info("[db-migrate] Added Category.color column");
+  }
+}

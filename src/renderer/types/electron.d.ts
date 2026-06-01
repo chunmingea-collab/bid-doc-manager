@@ -38,6 +38,36 @@ export interface DashboardStats {
   expiringCount: number;
 }
 
+export interface KeyInfoFields {
+  certificateNumber: string;
+  companyName: string;
+  personName: string;
+  qualificationLevel: string;
+  expiryDate: string;
+}
+
+export interface FileDetail {
+  id: string;
+  fileName: string;
+  originalPath: string;
+  extension: string;
+  size: number;
+  extractedText: string;
+  correctedText: string | null;
+  certificateNumber: string | null;
+  companyName: string | null;
+  personName: string | null;
+  qualificationLevel: string | null;
+  expiryDate: string | null;
+  importStatus: string;
+  importError: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface RecentActivity {
   id: string;
   fileName: string;
@@ -62,6 +92,7 @@ export interface CategoryRuleType {
   keywords: string[];
   isCustom: boolean;
   sortOrder: number;
+  color: string;
 }
 
 export interface AppSettings {
@@ -73,6 +104,9 @@ export interface AppSettings {
   importConcurrency: number;
   duplicateAction: "overwrite" | "keep_both" | "skip";
   autoBackupOnQuit: boolean;
+  autoBackupCadence: "off" | "daily" | "weekly" | "onQuit";
+  autoBackupKeep: number;
+  autoBackupDir: string;
   lastReminderShownDate: string;
   lastBackupAt: string;
   lastBackupPath: string;
@@ -129,6 +163,8 @@ export interface ElectronAPI {
   // Backup
   backupCreate: (destDir?: string) => Promise<{ filePath: string; timestamp: string }>;
   backupRestore: (zipPath: string) => Promise<{ success: boolean }>;
+  backupList: (dir?: string) => Promise<{ name: string; size: number; mtime: number }[]>;
+  backupDelete: (dir: string | undefined, name: string) => Promise<{ success: boolean }>;
 
   // Reminder
   checkReminders: () => Promise<{
@@ -140,7 +176,11 @@ export interface ElectronAPI {
 
   // File operations
   deleteFile: (fileId: string) => Promise<{ success: boolean }>;
-  correctText: (fileId: string, correctedText: string) => Promise<{ success: boolean }>;
+  correctText: (
+    fileId: string,
+    correctedText: string,
+  ) => Promise<{ success: boolean; categoryId: string | null; keyInfo: KeyInfoFields }>;
+  getFileDetail: (fileId: string) => Promise<FileDetail | null>;
   readFileBytes: (filePath: string) => Promise<{ bytes: number[]; mime: string }>;
 
   // Recycle bin
@@ -151,8 +191,10 @@ export interface ElectronAPI {
 
   // Categories
   getAllCategories: () => Promise<CategoryRuleType[]>;
-  createCategory: (data: { id: string; name: string; parentId: string | null; keywords: string[]; isCustom: boolean }) => Promise<{ id: string; name: string }>;
-  updateCategory: (data: { id: string; name: string; parentId: string | null; keywords: string[] }) => Promise<{ success: boolean }>;
+  createCategory: (data: { id: string; name: string; parentId: string | null; keywords: string[]; isCustom: boolean; color?: string }) => Promise<{ id: string; name: string; color: string }>;
+  updateCategory: (data: { id: string; name?: string; parentId?: string | null; keywords?: string[]; color?: string }) => Promise<{ success: boolean }>;
+  reorderCategories: (orderedIds: string[]) => Promise<{ success: boolean }>;
+  applyCategoryToFiles: (categoryId: string, fileIds: string[]) => Promise<{ updated: number }>;
   deleteCategory: (id: string) => Promise<{ success: boolean }>;
   resetCategoriesToDefaults: () => Promise<{ success: boolean }>;
   previewCategoryMatch: (categoryId: string) => Promise<{

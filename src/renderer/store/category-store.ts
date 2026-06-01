@@ -1,15 +1,21 @@
 import { create } from "zustand";
 import type { CategoryRule } from "../../../config/default-categories";
 
+export interface CategoryRuleWithColor extends CategoryRule {
+  color: string;
+  sortOrder: number;
+}
+
 export interface CategoryStore {
-  categories: CategoryRule[];
+  categories: CategoryRuleWithColor[];
   initialized: boolean;
 
   initialize: () => Promise<void>;
-  addCategory: (category: CategoryRule) => Promise<void>;
-  updateCategory: (id: string, updates: Partial<CategoryRule>) => Promise<void>;
+  addCategory: (category: Omit<CategoryRuleWithColor, "sortOrder">) => Promise<void>;
+  updateCategory: (id: string, updates: Partial<CategoryRuleWithColor>) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
   resetToDefaults: () => Promise<void>;
+  reorderCategories: (orderedIds: string[]) => Promise<void>;
 }
 
 export const useCategoryStore = create<CategoryStore>((set, get) => ({
@@ -19,12 +25,14 @@ export const useCategoryStore = create<CategoryStore>((set, get) => ({
   initialize: async () => {
     if (get().initialized) return;
     const cats = await window.electronAPI.getAllCategories();
-    const mapped: CategoryRule[] = cats.map((c) => ({
+    const mapped: CategoryRuleWithColor[] = cats.map((c) => ({
       id: c.id,
       name: c.name,
       parentId: c.parentId,
       keywords: c.keywords,
       isCustom: c.isCustom,
+      color: c.color || "#1677ff",
+      sortOrder: c.sortOrder ?? 0,
     }));
     set({ categories: mapped, initialized: true });
   },
@@ -36,17 +44,24 @@ export const useCategoryStore = create<CategoryStore>((set, get) => ({
       parentId: category.parentId,
       keywords: category.keywords,
       isCustom: category.isCustom,
+      color: category.color,
     });
-    set((state) => ({ categories: [...state.categories, category] }));
+    set((state) => ({
+      categories: [
+        ...state.categories,
+        { ...category, sortOrder: state.categories.length },
+      ],
+    }));
   },
 
   updateCategory: async (id, updates) => {
-    await window.electronAPI.updateCategory({
-      id,
-      name: updates.name ?? "",
-      parentId: updates.parentId ?? null,
-      keywords: updates.keywords ?? [],
-    });
+    // Only send defined fields; the IPC handler treats undefined as "leave alone".
+    const payload: { id: string; name?: string; parentId?: string | null; keywords?: string[]; color?: string } = { id };
+    if (updates.name !== undefined) payload.name = updates.name;
+    if (updates.parentId !== undefined) payload.parentId = updates.parentId;
+    if (updates.keywords !== undefined) payload.keywords = updates.keywords;
+    if (updates.color !== undefined) payload.color = updates.color;
+    await window.electronAPI.updateCategory(payload);
     set((state) => ({
       categories: state.categories.map((c) => (c.id === id ? { ...c, ...updates } : c)),
     }));
@@ -69,5 +84,18 @@ export const useCategoryStore = create<CategoryStore>((set, get) => ({
     await window.electronAPI.resetCategoriesToDefaults();
     set({ initialized: false });
     await get().initialize();
+  },
+
+  reorderCategories: async (orderedIds) => {
+    await window.electronAPI.reorderCategories(orderedIds);
+    // Optimistic local re-sort by index, so the UI doesn't flicker.
+    set((state) => {
+      const indexOf = new Map(orderedIds.map((id, idx) => [id, idx]));
+      return {
+        categories: state.categories
+          .map((c) => ({ ...c, sortOrder: indexOf.get(c.id) ?? c.sortOrder }))
+          .sort((a, b) => a.sortOrder - b.sortOrder),
+      };
+    });
   },
 }));

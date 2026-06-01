@@ -74,6 +74,7 @@ model Category {
   keywords   String   @default("") // comma-separated
   isCustom   Boolean  @default(false) // false = built-in, true = user
   sortOrder  Int      @default(0)
+  color      String   @default("#1677ff") // hex; used by tag dot + tree indicator
   files      File[]
 
   @@index([parentId])

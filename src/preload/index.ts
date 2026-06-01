@@ -27,12 +27,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Backup
   backupCreate: (destDir?: string) => ipcRenderer.invoke("backup:create", destDir),
   backupRestore: (zipPath: string) => ipcRenderer.invoke("backup:restore", zipPath),
+  backupList: (dir?: string) => ipcRenderer.invoke("backup:list", dir),
+  backupDelete: (dir: string | undefined, name: string) => ipcRenderer.invoke("backup:delete", dir, name),
 
   // Reminder
   checkReminders: () => ipcRenderer.invoke("reminder:check"),
 
   // File operations
   deleteFile: (fileId: string) => ipcRenderer.invoke("file:delete", fileId),
+  getFileDetail: (fileId: string) => ipcRenderer.invoke("file:detail", fileId),
   correctText: (fileId: string, correctedText: string) =>
     ipcRenderer.invoke("file:correctText", { fileId, correctedText }),
   readFileBytes: (filePath: string) => ipcRenderer.invoke("file:read", filePath),
@@ -44,10 +47,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Categories
   getAllCategories: () => ipcRenderer.invoke("category:getAll"),
-  createCategory: (data: { id: string; name: string; parentId: string | null; keywords: string[]; isCustom: boolean }) =>
+  createCategory: (data: { id: string; name: string; parentId: string | null; keywords: string[]; isCustom: boolean; color?: string }) =>
     ipcRenderer.invoke("category:create", data),
-  updateCategory: (data: { id: string; name: string; parentId: string | null; keywords: string[] }) =>
+  updateCategory: (data: { id: string; name?: string; parentId?: string | null; keywords?: string[]; color?: string }) =>
     ipcRenderer.invoke("category:update", data),
+  reorderCategories: (orderedIds: string[]) => ipcRenderer.invoke("category:reorder", orderedIds),
+  applyCategoryToFiles: (categoryId: string, fileIds: string[]) =>
+    ipcRenderer.invoke("category:applyToFiles", { categoryId, fileIds }),
   deleteCategory: (id: string) => ipcRenderer.invoke("category:delete", id),
   resetCategoriesToDefaults: () => ipcRenderer.invoke("category:reset"),
   previewCategoryMatch: (categoryId: string) =>

@@ -1,5 +1,6 @@
 import { ipcMain, dialog, shell, BrowserWindow, app } from "electron";
 import * as path from "path";
+import * as fs from "fs-extra";
 import {
   scanFolder,
   scanPaths,
@@ -17,7 +18,8 @@ import { searchDocuments, type SearchFilters } from "../services/search-service"
 import { exportToExcel, exportDocuments } from "../services/export-service";
 import { backupData, restoreData } from "../services/backup-service";
 import { checkExpiringDocuments } from "../services/reminder-service";
-import { invalidateCache as invalidateClassifierCache, previewCategoryMatch } from "../services/classifier/classifier";
+import { invalidateCache as invalidateClassifierCache, previewCategoryMatch, classifyDocument } from "../services/classifier/classifier";
+import { extractKeyInfo } from "../services/classifier/key-info-extractor";
 import { seedCategories } from "../services/seed-service";
 import {
   getAllSettings,
@@ -234,6 +236,32 @@ export function registerIpcHandlers(): void {
     return { success: true };
   }));
 
+  ipcMain.handle("backup:list", safeHandler(async (_event, dir?: string) => {
+    const target = dir && dir.length > 0 ? dir : path.join(app.getPath("documents"), "BidDocManagerBackups");
+    if (!(await fs.pathExists(target))) return [];
+    const entries = await fs.readdir(target);
+    const results: { name: string; size: number; mtime: number }[] = [];
+    for (const name of entries) {
+      if (!name.startsWith("bid-manager-backup-") || !name.endsWith(".zip")) continue;
+      const full = path.join(target, name);
+      const st = await fs.stat(full);
+      results.push({ name, size: st.size, mtime: st.mtimeMs });
+    }
+    results.sort((a, b) => b.name.localeCompare(a.name));
+    return results;
+  }));
+
+  ipcMain.handle("backup:delete", safeHandler(async (_event, dir: string | undefined, name: string) => {
+    const target = dir && dir.length > 0 ? dir : path.join(app.getPath("documents"), "BidDocManagerBackups");
+    if (!/^bid-manager-backup-.*\.zip$/.test(name)) {
+      throw new Error("非法的备份文件名");
+    }
+    const full = path.join(target, name);
+    if (!(await fs.pathExists(full))) return { success: true };
+    await fs.remove(full);
+    return { success: true };
+  }));
+
   // --- Reminder ---
   ipcMain.handle("reminder:check", safeHandler(async () => {
     const { overdue, within30Days, within60Days, within90Days } = await checkExpiringDocuments();
@@ -256,6 +284,36 @@ export function registerIpcHandlers(): void {
       within30Days: mapBucket(within30Days, "30days"),
       within60Days: mapBucket(within60Days, "60days"),
       within90Days: mapBucket(within90Days, "90days"),
+    };
+  }));
+
+  // --- File Detail (read-only; for the OCR correction drawer) ---
+  ipcMain.handle("file:detail", safeHandler(async (_event, fileId: string) => {
+    const f = await prisma.file.findUnique({
+      where: { id: fileId },
+      include: { category: true, tags: true },
+    });
+    if (!f) return null;
+    return {
+      id: f.id,
+      fileName: f.fileName,
+      originalPath: f.originalPath,
+      extension: f.extension,
+      size: f.size,
+      extractedText: f.extractedText,
+      correctedText: f.correctedText,
+      certificateNumber: f.certificateNumber,
+      companyName: f.companyName,
+      personName: f.personName,
+      qualificationLevel: f.qualificationLevel,
+      expiryDate: f.expiryDate,
+      importStatus: f.importStatus,
+      importError: f.importError,
+      categoryId: f.categoryId,
+      categoryName: f.category?.name ?? null,
+      tags: f.tags.map((t) => t.name),
+      createdAt: f.createdAt.toISOString(),
+      updatedAt: f.updatedAt.toISOString(),
     };
   }));
 
@@ -330,16 +388,71 @@ export function registerIpcHandlers(): void {
 
   // --- Correct Text ---
   ipcMain.handle("file:correctText", safeHandler(async (_event, { fileId, correctedText }: { fileId: string; correctedText: string }) => {
+    const trimmed = correctedText ?? "";
+    // Use the corrected text (if any) as the source for re-extraction; fall
+    // back to the originally extracted text when the user clears the field.
+    const file = await prisma.file.findUnique({ where: { id: fileId } });
+    if (!file) throw new Error("文件不存在");
+
+    const sourceText = trimmed.length > 0 ? trimmed : file.extractedText;
+    const keyInfo = extractKeyInfo(sourceText);
+    const classification = await classifyDocument(file.fileName, sourceText);
+    const categoryId = classification.categoryId;
+
     await prisma.file.update({
       where: { id: fileId },
-      data: { correctedText },
+      data: {
+        correctedText: trimmed.length > 0 ? trimmed : null,
+        certificateNumber: keyInfo.certificateNumber || null,
+        companyName: keyInfo.companyName || null,
+        personName: keyInfo.personName || null,
+        qualificationLevel: keyInfo.qualificationLevel || null,
+        expiryDate: keyInfo.expiryDate || null,
+        categoryId,
+      },
     });
-    return { success: true };
+
+    // Update the FTS5 row so search reflects the new text + extracted fields.
+    await removeFtsEntry(fileId);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO file_fts(id, fileName, extractedText, correctedText)
+       VALUES (?, ?, ?, COALESCE(?, ''))`,
+      file.id,
+      file.fileName,
+      sourceText,
+      trimmed.length > 0 ? trimmed : null,
+    );
+
+    return { success: true, categoryId, keyInfo: toPublicKeyInfo(keyInfo) };
   }));
+
+  // Helper: turn the extractor's `string|null` into the renderer's `string`
+  // contract (empty string for null) so the UI never has to null-check.
+  function toPublicKeyInfo(ki: {
+    expiryDate: string | null;
+    certificateNumber: string | null;
+    companyName: string | null;
+    personName: string | null;
+    qualificationLevel: string | null;
+  }): {
+    expiryDate: string;
+    certificateNumber: string;
+    companyName: string;
+    personName: string;
+    qualificationLevel: string;
+  } {
+    return {
+      expiryDate: ki.expiryDate ?? "",
+      certificateNumber: ki.certificateNumber ?? "",
+      companyName: ki.companyName ?? "",
+      personName: ki.personName ?? "",
+      qualificationLevel: ki.qualificationLevel ?? "",
+    };
+  }
 
   // --- Categories CRUD ---
   ipcMain.handle("category:getAll", safeHandler(async () => {
-    const rows = await prisma.category.findMany({ orderBy: { sortOrder: "asc" } });
+    const rows = await prisma.category.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] });
     return rows.map((r) => ({
       id: r.id,
       name: r.name,
@@ -347,10 +460,11 @@ export function registerIpcHandlers(): void {
       keywords: r.keywords ? r.keywords.split(",").filter((k: string) => k) : [],
       isCustom: r.isCustom,
       sortOrder: r.sortOrder,
+      color: r.color,
     }));
   }));
 
-  ipcMain.handle("category:create", safeHandler(async (_event, data: { id: string; name: string; parentId: string | null; keywords: string[]; isCustom: boolean }) => {
+  ipcMain.handle("category:create", safeHandler(async (_event, data: { id: string; name: string; parentId: string | null; keywords: string[]; isCustom: boolean; color?: string }) => {
     const cat = await prisma.category.create({
       data: {
         id: data.id,
@@ -359,19 +473,46 @@ export function registerIpcHandlers(): void {
         keywords: data.keywords.join(","),
         isCustom: data.isCustom,
         sortOrder: 0,
+        color: data.color ?? "#1677ff",
       },
     });
     invalidateClassifierCache();
-    return { id: cat.id, name: cat.name };
+    return { id: cat.id, name: cat.name, color: cat.color };
   }));
 
-  ipcMain.handle("category:update", safeHandler(async (_event, data: { id: string; name: string; parentId: string | null; keywords: string[] }) => {
-    await prisma.category.update({
-      where: { id: data.id },
-      data: { name: data.name, parentId: data.parentId, keywords: data.keywords.join(",") },
-    });
+  ipcMain.handle("category:update", safeHandler(async (_event, data: { id: string; name?: string; parentId?: string | null; keywords?: string[]; color?: string }) => {
+    const payload: Record<string, unknown> = {};
+    if (data.name !== undefined) payload.name = data.name;
+    if (data.parentId !== undefined) payload.parentId = data.parentId;
+    if (data.keywords !== undefined) payload.keywords = data.keywords.join(",");
+    if (data.color !== undefined) payload.color = data.color;
+    await prisma.category.update({ where: { id: data.id }, data: payload });
     invalidateClassifierCache();
     return { success: true };
+  }));
+
+  ipcMain.handle("category:reorder", safeHandler(async (_event, orderedIds: string[]) => {
+    if (!Array.isArray(orderedIds)) throw new Error("orderedIds must be an array");
+    // Apply sortOrder = index. SQLite is fine with thousands of updates; we
+    // only ever have a few dozen categories so a single transaction is fast.
+    await prisma.$transaction(
+      orderedIds.map((id, idx) =>
+        prisma.category.update({ where: { id }, data: { sortOrder: idx } }),
+      ),
+    );
+    invalidateClassifierCache();
+    return { success: true };
+  }));
+
+  ipcMain.handle("category:applyToFiles", safeHandler(async (_event, { categoryId, fileIds }: { categoryId: string; fileIds: string[] }) => {
+    if (!Array.isArray(fileIds) || fileIds.length === 0) {
+      throw new Error("fileIds 不能为空");
+    }
+    const result = await prisma.file.updateMany({
+      where: { id: { in: fileIds }, isDeleted: false },
+      data: { categoryId },
+    });
+    return { updated: result.count };
   }));
 
   ipcMain.handle("category:delete", safeHandler(async (_event, id: string) => {

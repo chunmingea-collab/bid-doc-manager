@@ -14,6 +14,7 @@ import {
   message,
   Alert,
   List,
+  ColorPicker,
 } from "antd";
 import {
   PlusOutlined,
@@ -23,21 +24,33 @@ import {
   FolderOutlined,
   CloseOutlined,
   ThunderboltOutlined,
+  ArrowUpOutlined,
+  ArrowDownOutlined,
 } from "@ant-design/icons";
 import type { DataNode } from "antd/es/tree";
-import { useCategoryStore } from "../../store/category-store";
+import { useCategoryStore, type CategoryRuleWithColor } from "../../store/category-store";
 import type { CategoryRule } from "../../../../config/default-categories";
 
 const { Title } = Typography;
 
-function buildTree(categories: CategoryRule[]): DataNode[] {
+function buildTree(categories: CategoryRuleWithColor[]): DataNode[] {
   const map = new Map<string, DataNode[]>();
 
   for (const cat of categories) {
     const node: DataNode = {
       title: (
         <Space>
-          <FolderOutlined />
+          <span
+            style={{
+              display: "inline-block",
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              background: cat.color || "#1677ff",
+              boxShadow: "0 0 0 1px rgba(0,0,0,0.06)",
+            }}
+          />
+          <FolderOutlined style={{ color: cat.color || "#1677ff" }} />
           <span>{cat.name}</span>
           <Tag color={cat.isCustom ? "orange" : "blue"} style={{ fontSize: 11 }}>
             {cat.isCustom ? "自定义" : "内置"}
@@ -69,10 +82,11 @@ function buildTree(categories: CategoryRule[]): DataNode[] {
 }
 
 const CategoryDetail: React.FC<{
-  category: CategoryRule;
+  category: CategoryRuleWithColor;
   onUpdateKeywords: (keywords: string[]) => void;
   onRename: (name: string) => void;
-}> = ({ category, onUpdateKeywords, onRename }) => {
+  onColorChange: (color: string) => void;
+}> = ({ category, onUpdateKeywords, onRename, onColorChange }) => {
   const [newKeyword, setNewKeyword] = useState("");
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(category.name);
@@ -174,6 +188,25 @@ const CategoryDetail: React.FC<{
             上级分类 ID: {category.parentId}
           </span>
         )}
+        <span style={{ marginLeft: 16, display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <span style={{ color: "#8c8c8c" }}>分类色标：</span>
+          <ColorPicker
+            value={category.color}
+            onChange={(c) => onColorChange(c.toHexString())}
+            size="small"
+            showText
+            disabledAlpha
+            presets={[
+              {
+                label: "推荐色",
+                colors: [
+                  "#1677ff", "#722ed1", "#52c41a", "#fa8c16",
+                  "#13c2c2", "#eb2f96", "#fadb14", "#bfbfbf",
+                ],
+              },
+            ]}
+          />
+        </span>
       </p>
 
       <div style={{ marginTop: 24 }}>
@@ -277,6 +310,7 @@ const CategoryManager: React.FC = () => {
     updateCategory,
     deleteCategory,
     resetToDefaults,
+    reorderCategories,
   } = useCategoryStore();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -309,7 +343,7 @@ const CategoryManager: React.FC = () => {
   );
 
   const openEditModal = useCallback(
-    (cat: CategoryRule) => {
+    (cat: CategoryRuleWithColor) => {
       setModalMode("edit");
       form.setFieldsValue({
         id: cat.id,
@@ -339,6 +373,7 @@ const CategoryManager: React.FC = () => {
         parentId,
         keywords: values.keywords ?? [],
         isCustom: true,
+        color: "#1677ff",
       });
       message.success("分类已添加");
     } else {
@@ -377,6 +412,25 @@ const CategoryManager: React.FC = () => {
   }, [resetToDefaults]);
 
   const treeData = useMemo(() => buildTree(categories), [categories]);
+
+  // Top-level categories, ordered by sortOrder. Reorder is only allowed on
+  // top-level rows so that the tree shape (parent → children) stays
+  // consistent. Children are sorted lexicographically inside buildTree.
+  const topLevel = useMemo(
+    () => categories.filter((c) => c.parentId === null).sort((a, b) => a.sortOrder - b.sortOrder),
+    [categories],
+  );
+
+  const moveCategory = (id: string, direction: -1 | 1) => {
+    const ids = topLevel.map((c) => c.id);
+    const idx = ids.indexOf(id);
+    if (idx < 0) return;
+    const targetIdx = idx + direction;
+    if (targetIdx < 0 || targetIdx >= ids.length) return;
+    const newOrder = [...ids];
+    [newOrder[idx], newOrder[targetIdx]] = [newOrder[targetIdx], newOrder[idx]];
+    void reorderCategories(newOrder);
+  };
 
   return (
     <div style={{ display: "flex", gap: 24, height: "100%" }}>
@@ -421,13 +475,41 @@ const CategoryManager: React.FC = () => {
           </Button>
         </div>
         {treeData.length > 0 ? (
-          <Tree
-            showLine
-            treeData={treeData}
-            selectedKeys={selectedId ? [selectedId] : []}
-            onSelect={(keys) => setSelectedId(keys.length > 0 ? (keys[0] as string) : null)}
-            defaultExpandAll
-          />
+          <>
+            <Tree
+              showLine
+              treeData={treeData}
+              selectedKeys={selectedId ? [selectedId] : []}
+              onSelect={(keys) => setSelectedId(keys.length > 0 ? (keys[0] as string) : null)}
+              defaultExpandAll
+            />
+            {selectedCategory && selectedCategory.parentId === null && (
+              <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+                <Button
+                  size="small"
+                  icon={<ArrowUpOutlined />}
+                  disabled={topLevel.findIndex((c) => c.id === selectedCategory.id) === 0}
+                  onClick={() => moveCategory(selectedCategory.id, -1)}
+                >
+                  上移
+                </Button>
+                <Button
+                  size="small"
+                  icon={<ArrowDownOutlined />}
+                  disabled={
+                    topLevel.findIndex((c) => c.id === selectedCategory.id) ===
+                    topLevel.length - 1
+                  }
+                  onClick={() => moveCategory(selectedCategory.id, 1)}
+                >
+                  下移
+                </Button>
+                <Typography.Text type="secondary" style={{ fontSize: 12, lineHeight: "28px" }}>
+                  仅顶级分类可重排
+                </Typography.Text>
+              </div>
+            )}
+          </>
         ) : (
           <div style={{ color: "#bfbfbf", padding: 24, textAlign: "center" }}>
             暂无分类数据
@@ -445,6 +527,9 @@ const CategoryManager: React.FC = () => {
             }}
             onRename={(name) => {
               updateCategory(selectedCategory.id, { name });
+            }}
+            onColorChange={(color) => {
+              updateCategory(selectedCategory.id, { color });
             }}
           />
         ) : (

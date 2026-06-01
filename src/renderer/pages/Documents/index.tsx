@@ -26,6 +26,7 @@ import {
   EyeOutlined,
   EditOutlined,
   SyncOutlined,
+  TagOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
@@ -397,12 +398,23 @@ const DocumentsPage: React.FC = () => {
 
   const handleCorrectTextSave = async (fileId: string, correctedText: string) => {
     try {
-      await window.electronAPI.correctText(fileId, correctedText);
-      message.success('OCR 文字已保存');
+      const result = await window.electronAPI.correctText(fileId, correctedText);
+      const ki = result.keyInfo;
+      const populated = [
+        ki.certificateNumber && `证书号 ${ki.certificateNumber}`,
+        ki.companyName && `企业 ${ki.companyName}`,
+        ki.personName && `人员 ${ki.personName}`,
+        ki.expiryDate && `有效期至 ${ki.expiryDate}`,
+      ].filter(Boolean).join('，');
+      message.success(
+        populated
+          ? `已保存并自动重新分类 / 提取关键信息：${populated}`
+          : 'OCR 文字已保存',
+      );
       setOcrModalOpen(false);
       fetchDocuments(searchText, categoryFilter, typeFilter);
     } catch (err) {
-      message.error(`保存失败：${err instanceof Error ? err.message : String(err)}`);
+      message.error(`保存失败：${formatError(err)}`);
     }
   };
 
@@ -452,6 +464,30 @@ const DocumentsPage: React.FC = () => {
         }
       },
     });
+  };
+
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [pickedCategoryId, setPickedCategoryId] = useState<string | null>(null);
+
+  const handleBulkApplyCategory = () => {
+    if (selectedRowKeys.length === 0) return;
+    setPickedCategoryId(null);
+    setCategoryModalOpen(true);
+  };
+
+  const confirmApplyCategory = async () => {
+    if (!pickedCategoryId) {
+      message.warning("请先选择目标分类");
+      return;
+    }
+    try {
+      const result = await window.electronAPI.applyCategoryToFiles(pickedCategoryId, selectedRowKeys);
+      message.success(`已将 ${result.updated} 份资料设置为「${categoryOptions.find((c) => c.value === pickedCategoryId)?.label ?? pickedCategoryId}」`);
+      setCategoryModalOpen(false);
+      fetchDocuments(searchText, categoryFilter, typeFilter);
+    } catch (err) {
+      message.error(`设置分类失败：${formatError(err)}`);
+    }
   };
 
   const handleBulkReprocess = async () => {
@@ -682,6 +718,13 @@ const DocumentsPage: React.FC = () => {
             >
               重试 OCR
             </Button>
+            <Button
+              size="small"
+              icon={<TagOutlined />}
+              onClick={handleBulkApplyCategory}
+            >
+              设置分类…
+            </Button>
             <Button size="small" danger icon={<DeleteOutlined />} onClick={handleBulkDelete}>
               批量删除
             </Button>
@@ -766,6 +809,29 @@ const DocumentsPage: React.FC = () => {
             onOpenInFolder={() => handleOpenInFolder(previewDoc.originalPath)}
           />
         )}
+      </Modal>
+
+      <Modal
+        title={`批量设置分类（${selectedRowKeys.length} 份）`}
+        open={categoryModalOpen}
+        onCancel={() => setCategoryModalOpen(false)}
+        onOk={confirmApplyCategory}
+        okText="应用"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <p style={{ color: "#8c8c8c" }}>
+          将选中的 {selectedRowKeys.length} 份资料强制设置为同一个分类（覆盖自动分类结果）。
+        </p>
+        <Select
+          style={{ width: "100%" }}
+          placeholder="选择目标分类"
+          value={pickedCategoryId}
+          onChange={setPickedCategoryId}
+          showSearch
+          optionFilterProp="label"
+          options={categoryOptions.filter((c) => c.value !== "")}
+        />
       </Modal>
     </div>
   );

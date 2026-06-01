@@ -59,6 +59,17 @@ nsis:
   installerIcon: build/icon.ico
   uninstallerIcon: build/icon.ico
   artifactName: "${productName}-Setup-${version}-win-x64.${ext}"
+  # License shown by the NSIS installer before the install dir picker
+  license: build/EULA.txt
+  installerHeader: build/installer-header.bmp
+  installerHeaderIcon: build/icon.ico
+  # Custom messages — keep them short; NSIS UI is space-limited
+  customNsisScript: |
+    !macro customHeader
+      RequestExecutionLevel user
+    !macroend
+  # Append our uninstall-keep-data notice
+  uninstallDisplayName: 投标资料管理工具 ${version}
 
 mac:
   target:
