@@ -2,7 +2,7 @@ import "./services/test-mode";
 import { app, BrowserWindow, screen } from "electron";
 import path from "path";
 import { ensureUserDatabase, ensureFts5, ensureColumnAdditions } from "./services/db-migrate";
-import { prisma } from "../utils/prisma";
+import { prisma, setActiveProfileName } from "../utils/prisma";
 import { registerIpcHandlers } from "./ipc/handlers";
 import { seedCategories } from "./services/seed-service";
 import { scheduleMaintenance } from "./services/maintenance-service";
@@ -15,6 +15,7 @@ import {
 import { buildMenu } from "./menu";
 import { logger } from "./services/logger";
 import { startAutoBackupScheduler } from "./services/auto-backup-scheduler";
+import * as profileService from "./services/profile-service";
 
 let mainWindow: BrowserWindow | null = null;
 let maintenanceHandle: { stop: () => void } | null = null;
@@ -61,6 +62,22 @@ function createWindow(): void {
   });
 }
 
+/**
+ * Run once at startup: bring the active profile's DB up to schema. No-op
+ * if the user has not yet created a profile (wizard handles that).
+ */
+async function bootstrapActiveProfile(): Promise<void> {
+  if (!(await profileService.getActiveProfile())) return;
+  try {
+    await ensureUserDatabase();
+    await ensureFts5();
+    await ensureColumnAdditions();
+    await seedCategories();
+  } catch (err) {
+    logger.error("[app] failed to ensure user database:", err);
+  }
+}
+
 // Ensure only a single instance of the app runs at a time. Two instances
 // racing on the same userData SQLite file is a recipe for corruption and
 // a confusing "data disappeared after I opened the app" UX.
@@ -93,14 +110,29 @@ if (!gotLock) {
       app.setAppUserModelId("com.biddate.manager");
     }
 
+    // Profile bootstrap: migrate any legacy single-DB install and resolve
+    // the active profile (sets the prisma URL target). This must happen
+    // before any service that touches the DB.
     try {
-      await ensureUserDatabase();
-      await ensureFts5();
-      await ensureColumnAdditions();
+      await profileService.init();
+      await profileService.purgeOldTrash();
     } catch (err) {
-      logger.error("[app] failed to ensure user database:", err);
+      logger.error("[app] profile init failed:", err);
     }
-    await seedCategories();
+
+    await bootstrapActiveProfile();
+
+    // When the renderer switches the active profile, the prisma URL
+    // changes — re-run the schema bootstrap against the new DB.
+    profileService.onActiveProfileChanged(async (name) => {
+      logger.info(`[app] active profile changed -> ${name ?? "(none)"}`);
+      setActiveProfileName(name);
+      await bootstrapActiveProfile();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("profile:changed", { name });
+      }
+    });
+
     maintenanceHandle = scheduleMaintenance();
     startAutoBackupScheduler();
     buildMenu();

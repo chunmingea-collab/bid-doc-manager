@@ -21,8 +21,9 @@ V1.0 polish pass complete. All P0/P1/P2 tasks done plus a release-readiness pass
 - **Backup/restore**: Node-native via `archiver` (create) + `adm-zip` (extract). No PowerShell.
 - **30-day trash purge**: `src/main/services/maintenance-service.ts` runs daily.
 - **UX**: Top-level `ErrorBoundary`, in-app `NotificationCenter` (bell icon), bulk delete on Documents, native app menu, global keyboard shortcuts (`Ctrl+1..4`, `Ctrl+I`, `Ctrl+F`).
-- **Production DB**: Prisma client points to `app.getPath('userData')/bid_doc_manager.db`. On first launch, `ensureUserDatabase()` copies a pre-migrated empty template from `<resources>/prisma/bid_doc_manager.db`.
-- **Tests**: Vitest, 40 passing (date utils, key-info extractor, classifier with mocked Prisma). Run `pnpm test`.
+- **Production DB**: Prisma client points to `app.getPath('userData')/profiles/<active>/bid_doc_manager.db`. On first launch, `ensureUserDatabase()` copies a pre-migrated empty template from `<resources>/prisma/bid_doc_manager.db` and runs `seedCategories()`.
+- **Multi-profile (multi-enterprise)**: Each customer company is a fully isolated workspace — own DB, own classification rules, own tags, own reminders, own backup. Switcher in the top bar. See `AGENTS.md` for the full layout.
+- **Tests**: Vitest, 111 passing across 13 files. Run `pnpm test`.
 - **Logging**: `electron-log` writes to `app.getPath('logs')/main.log`.
 - **Packaging**: `scripts/after-pack.js` verifies the bundle has the DB template, OCR models, Prisma query engine, and (warns on) the OCR runner before NSIS installer creation.
 

@@ -1,7 +1,7 @@
 /**
- * Pure validation helpers for the category IPC handlers. Kept separate so
- * they can be unit-tested without spinning up an Electron process or a
- * real Prisma client.
+ * Pure validation helpers for the IPC handlers. Kept separate so they
+ * can be unit-tested without spinning up an Electron process or a real
+ * Prisma client.
  */
 
 export interface CategoryReorderInput {
@@ -63,4 +63,33 @@ export function validateBackupDeleteInput(input: BackupDeleteInput): { dir: stri
     throw new Error("dir must be a string");
   }
   return { dir, name };
+}
+
+const RESERVED_PROFILE_NAMES = new Set(["CON", "PRN", "AUX", "NUL"]);
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * Coerce + validate a user-supplied profile (enterprise) name. Returns the
+ * cleaned name. Throws on invalid input.
+ */
+export function validateProfileName(raw: unknown): string {
+  if (typeof raw !== "string") throw new Error("企业名称必须是字符串");
+  const name = raw.trim();
+  if (!name) throw new Error("企业名称不能为空");
+  if (name.length > 40) throw new Error("企业名称不能超过 40 个字符");
+  if (name.startsWith(".")) throw new Error("企业名称不能以 . 开头");
+  if (/[\\/:*?"<>|]/.test(name)) {
+    throw new Error("企业名称包含非法字符 (\\ / : * ? \" < > |)");
+  }
+  if (RESERVED_PROFILE_NAMES.has(name.toUpperCase())) {
+    throw new Error(`"${name}" 是 Windows 保留名`);
+  }
+  return name;
+}
+
+export function validateProfileColor(raw: unknown): string {
+  if (typeof raw !== "string" || !HEX_COLOR.test(raw)) {
+    throw new Error("颜色必须是 #RRGGBB 格式");
+  }
+  return raw.toLowerCase();
 }

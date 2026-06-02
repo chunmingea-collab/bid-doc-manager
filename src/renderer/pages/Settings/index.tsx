@@ -6,12 +6,14 @@ import BackupSettings from "./BackupSettings";
 import OcrSettings from "./OcrSettings";
 import ImportSettings from "./ImportSettings";
 import ThemeSettings from "./ThemeSettings";
+import { ProfileSettings } from "./ProfileSettings";
 
 export default function SettingsPage(): React.ReactElement {
   return (
     <Tabs
       defaultActiveKey="categories"
       items={[
+        { key: "profiles", label: "企业档案", children: <ProfileSettings /> },
         { key: "categories", label: "分类管理", children: <CategoryManager /> },
         { key: "reminders", label: "到期提醒", children: <ReminderSettings /> },
         { key: "import", label: "导入", children: <ImportSettings /> },

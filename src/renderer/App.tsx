@@ -6,10 +6,14 @@ import ImportPage from "./pages/Import";
 import DocumentsPage from "./pages/Documents";
 import RecycleBinPage from "./pages/RecycleBin";
 import SettingsPage from "./pages/Settings";
+import { ProfileSettings } from "./pages/Settings/ProfileSettings";
 import ErrorBoundary from "./components/ErrorBoundary";
 import NotificationCenter from "./components/NotificationCenter";
+import { ProfileSwitcher } from "./components/ProfileSwitcher";
+import { OnboardingWizard } from "./components/OnboardingWizard";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useThemeMode } from "./hooks/useThemeMode";
+import { useProfileStore } from "./store/profile-store";
 
 const { Header, Content, Sider } = Layout;
 
@@ -61,6 +65,19 @@ function AppShell(): React.ReactElement {
     document.body.dataset.theme = resolved;
   }, [resolved]);
 
+  // When the active profile changes, the DB behind the singleton Prisma
+  // client has flipped. Reload the renderer to drop all in-memory caches
+  // and let every page re-fetch against the new profile.
+  useEffect(() => {
+    const handler = (_e: unknown, payload: { name: string | null }) => {
+      if (payload.name === null) return; // wizard will take over
+      window.location.hash = "/dashboard";
+      // Defer reload one tick so the hash change is applied first.
+      setTimeout(() => window.location.reload(), 50);
+    };
+    return window.electronAPI.onProfileChanged(handler);
+  }, []);
+
   useEffect(() => {
     const menuHandler = (_e: unknown, route: string) => {
       navigate(route);
@@ -90,7 +107,10 @@ function AppShell(): React.ReactElement {
         <span style={{ color: "#fff", fontSize: 18, fontWeight: 600 }}>
           投标资料管理
         </span>
-        <NotificationCenter />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <ProfileSwitcher />
+          <NotificationCenter />
+        </div>
       </Header>
       <Layout>
         <Sidebar />
@@ -109,6 +129,7 @@ function AppShell(): React.ReactElement {
               <Route path="/documents" element={<ErrorBoundary><DocumentsPage /></ErrorBoundary>} />
               <Route path="/recycle-bin" element={<ErrorBoundary><RecycleBinPage /></ErrorBoundary>} />
               <Route path="/settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
+              <Route path="/settings/profiles" element={<ErrorBoundary><ProfileSettings /></ErrorBoundary>} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </div>
@@ -118,12 +139,45 @@ function AppShell(): React.ReactElement {
   );
 }
 
+function WizardGate({ children }: { children: React.ReactNode }): React.ReactElement {
+  const profiles = useProfileStore((s) => s.profiles);
+  const active = useProfileStore((s) => s.active);
+  const loaded = useProfileStore((s) => s.loaded);
+  const refresh = useProfileStore((s) => s.refresh);
+  const refreshActive = useProfileStore((s) => s.refreshActive);
+
+  useEffect(() => {
+    void refresh();
+    void refreshActive();
+  }, [refresh, refreshActive]);
+
+  // While loading, render children (will likely 401 on DB calls — those
+  // are caught and shown as empty states). Show the wizard only when we
+  // have a confirmed empty profile list.
+  if (!loaded) return <>{children}</>;
+  if (profiles.length > 0) return <>{children}</>;
+
+  return (
+    <>
+      {children}
+      <OnboardingWizard
+        open={active === null && loaded}
+        onCreated={() => {
+          // main process will emit profile:changed; the app will reload.
+        }}
+      />
+    </>
+  );
+}
+
 function App(): React.ReactElement {
   const { themeConfig } = useThemeMode();
   return (
     <ConfigProvider theme={themeConfig}>
       <HashRouter>
-        <AppShell />
+        <WizardGate>
+          <AppShell />
+        </WizardGate>
       </HashRouter>
     </ConfigProvider>
   );

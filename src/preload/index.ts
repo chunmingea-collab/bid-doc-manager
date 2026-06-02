@@ -109,4 +109,21 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("menu:navigate", callback);
     return () => ipcRenderer.removeListener("menu:navigate", callback);
   },
+
+  // Profile (multi-enterprise workspaces)
+  listProfiles: () => ipcRenderer.invoke("profile:list"),
+  getActiveProfile: () => ipcRenderer.invoke("profile:getActive"),
+  createProfile: (input: { name: string; taxId?: string; color?: string; notes?: string }) =>
+    ipcRenderer.invoke("profile:create", input),
+  renameProfile: (oldName: string, newName: string) =>
+    ipcRenderer.invoke("profile:rename", { oldName, newName }),
+  updateProfileMeta: (input: { name: string; taxId?: string; color?: string; notes?: string }) =>
+    ipcRenderer.invoke("profile:updateMeta", input),
+  deleteProfile: (name: string) => ipcRenderer.invoke("profile:delete", name),
+  switchProfile: (name: string) => ipcRenderer.invoke("profile:switch", name),
+  exportProfile: (name: string) => ipcRenderer.invoke("profile:export", name),
+  onProfileChanged: (callback: (event: unknown, payload: { name: string | null }) => void) => {
+    ipcRenderer.on("profile:changed", callback);
+    return () => ipcRenderer.removeListener("profile:changed", callback);
+  },
 });

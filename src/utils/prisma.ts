@@ -67,32 +67,117 @@ function resolvePrismaEnginePaths(): void {
 
 resolvePrismaEnginePaths();
 
-// Resolve user data directory for database storage.
-// In Electron main process, uses app.getPath('userData').
-// Falls back to project prisma/ directory for tests.
-function getDbUrl(): string {
+// ---------------------------------------------------------------------------
+// Profile-aware database URL
+// ---------------------------------------------------------------------------
+// Each user "profile" (a company/enterprise the user is bidding for) has its
+// own SQLite file under `userData/profiles/<name>/bid_doc_manager.db`. The
+// "active profile" is stored in `userData/current-profile.json` and
+// determines which DB the singleton Prisma client points at.
+//
+// In tests / non-Electron contexts, there is no profile system — fall back
+// to the repo's prisma template DB (used by Vitest's e2e-ish tests).
+
+let activeProfileName: string | null = null;
+
+export function setActiveProfileName(name: string | null): void {
+  if (activeProfileName === name) return;
+  activeProfileName = name;
+  // Force the lazy client factory to re-resolve on next access.
+  cachedClient = null;
+  cachedClientUrl = null;
+}
+
+export function getActiveProfileName(): string | null {
+  return activeProfileName;
+}
+
+function isElectronContext(): boolean {
   try {
-    // `require` here keeps the import out of the renderer/test bundles
-    // — electron is only available in the main process.
+    const electron = require("electron") as typeof import("electron") | undefined;
+    return !!electron?.app;
+  } catch {
+    return false;
+  }
+}
+
+function userDataDir(): string | null {
+  try {
     const electron = require("electron") as typeof import("electron") | undefined;
     const app = electron?.app;
     if (app && typeof app.getPath === "function") {
-      const userDataPath = app.getPath("userData");
-      mkdirSync(userDataPath, { recursive: true });
-      return `file:${path.join(userDataPath, "bid_doc_manager.db")}`;
+      const dir = app.getPath("userData");
+      mkdirSync(dir, { recursive: true });
+      return dir;
     }
   } catch {
-    // Not in Electron context (tests, etc.)
+    // Not in Electron context.
+  }
+  return null;
+}
+
+function profileDbPath(userDir: string, profileName: string): string {
+  const safe = profileName.replace(/[\\/:*?"<>|]/g, "_");
+  return path.join(userDir, "profiles", safe, "bid_doc_manager.db");
+}
+
+export function computeDbUrl(): string {
+  const userDir = userDataDir();
+  if (userDir && activeProfileName) {
+    return `file:${profileDbPath(userDir, activeProfileName)}`;
+  }
+  if (userDir) {
+    // No active profile yet (wizard mode). Use a placeholder path; the
+    // caller should not query the DB until a profile is set.
+    return `file:${path.join(userDir, "__no_active_profile__")}`;
   }
   return "file:./prisma/bid_doc_manager.db";
 }
 
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: getDbUrl(),
-    },
+// ---------------------------------------------------------------------------
+// Lazy singleton with hot-swap
+// ---------------------------------------------------------------------------
+// Switching the active profile invalidates `cachedClient`; the next property
+// access re-instantiates a PrismaClient against the new DB URL. The old
+// client's connection pool is drained lazily; the SQLite WAL is reopened by
+// the new instance on first query.
+
+let cachedClient: PrismaClient | null = null;
+let cachedClientUrl: string | null = null;
+
+function getClient(): PrismaClient {
+  const url = computeDbUrl();
+  if (cachedClient && cachedClientUrl === url) return cachedClient;
+  if (cachedClient) {
+    // Best-effort disconnect — never throws to the caller.
+    void cachedClient.$disconnect().catch(() => undefined);
+  }
+  cachedClient = new PrismaClient({ datasources: { db: { url } } });
+  cachedClientUrl = url;
+  return cachedClient;
+}
+
+/**
+ * Singleton proxy. All property accesses are forwarded to the *current*
+ * PrismaClient (re-instantiated on profile change). Methods are bound to
+ * the underlying client so `this`-sensitive Prisma internals keep working.
+ */
+export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, prop, _receiver) {
+    const client = getClient();
+    const value = Reflect.get(client, prop, client);
+    return typeof value === "function" ? value.bind(client) : value;
+  },
+  has(_target, prop) {
+    const client = getClient();
+    return Reflect.has(client, prop);
   },
 });
 
-export { prisma };
+export function isReady(): boolean {
+  return activeProfileName !== null;
+}
+
+export function isElectron(): boolean {
+  return isElectronContext();
+}

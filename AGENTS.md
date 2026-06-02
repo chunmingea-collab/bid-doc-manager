@@ -8,7 +8,61 @@ Local-offline desktop application for managing bidding/procurement documents. Fe
 
 ## Current State
 
-V1.0 complete. All P0/P1/P2 tasks done. See `CLAUDE.md` for the release-readiness summary.
+V1.0 complete. All P0/P1/P2 tasks done. Multi-enterprise (multi-profile) support
+is now the top-level data boundary: a single user may operate isolated
+workspaces for many client companies, each with its own database, classification
+rules, tags, and reminders. See `CLAUDE.md` for the release-readiness summary.
+
+### Multi-Profile Architecture
+
+Each "enterprise" (投标客户企业) is a fully isolated workspace. The user's
+appdata layout is:
+
+```
+userData/
+├── profiles/
+│   ├── 北京建工集团/
+│   │   ├── bid_doc_manager.db   # per-profile SQLite, Prisma connects here
+│   │   └── meta.json            # id, name, color, taxId, notes, timestamps
+│   ├── 中铁建设/
+│   │   ├── bid_doc_manager.db
+│   │   └── meta.json
+│   └── .trash/<name>-<ts>/...   # 30-day soft-delete bin
+├── current-profile.json         # {id, name} — pointer to the active profile
+└── ...
+```
+
+Key invariants:
+
+- The **singleton** `prisma` export in `src/utils/prisma.ts` is a `Proxy` that
+  delegates every property access to the **currently active** PrismaClient. On
+  profile switch the new client connects to the new DB on the next property
+  access. Existing call sites (`prisma.file.findMany()`, `prisma.$queryRaw`,
+  etc.) need zero changes.
+- `current-profile.json` is the source of truth for the active workspace.
+  Missing or pointing to a deleted profile → wizard triggers.
+- The renderer subscribes to `profile:changed` events and reloads the page on
+  switch to drop in-memory caches.
+- Deleting a profile moves its directory to `.trash/`; entries older than 30
+  days are purged on app start.
+- A legacy `userData/bid_doc_manager.db` from a pre-profile build is auto-
+  migrated into `profiles/默认企业/` on first launch.
+
+Key files:
+
+| File | Role |
+|------|------|
+| `src/utils/prisma.ts` | Lazy proxy; hot-swaps client on profile change |
+| `src/main/services/profile-service.ts` | CRUD, migration, event emitter |
+| `src/main/services/db-migrate.ts` | Profile-aware `ensureUserDatabase` |
+| `src/main/services/validation.ts` | `validateProfileName/Color` |
+| `src/main/index.ts` | `bootstrapActiveProfile` + `onActiveProfileChanged` |
+| `src/main/ipc/handlers.ts` | `profile:list/create/switch/...` IPCs |
+| `src/preload/index.ts` | Renderer-side `profileAPI` |
+| `src/renderer/store/profile-store.ts` | Zustand state |
+| `src/renderer/components/ProfileSwitcher.tsx` | Top-bar dropdown |
+| `src/renderer/components/OnboardingWizard.tsx` | First-run wizard |
+| `src/renderer/pages/Settings/ProfileSettings.tsx` | Manage / rename / delete |
 
 ## Build & Dev Commands
 

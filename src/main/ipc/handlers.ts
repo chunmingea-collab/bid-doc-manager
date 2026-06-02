@@ -40,7 +40,10 @@ import {
   validateReorderInput,
   validateApplyToFilesInput,
   validateBackupDeleteInput,
+  validateProfileName,
+  validateProfileColor,
 } from "../services/validation";
+import * as profileService from "../services/profile-service";
 
 export interface DashboardStats {
   totalCount: number;
@@ -65,6 +68,58 @@ function safeHandler<T extends unknown[]>(
 }
 
 export function registerIpcHandlers(): void {
+  // --- Profile management ---
+  ipcMain.handle("profile:list", safeHandler(async () => {
+    return await profileService.listProfiles();
+  }));
+  ipcMain.handle("profile:getActive", safeHandler(async () => {
+    return await profileService.getActiveProfile();
+  }));
+  ipcMain.handle("profile:create", safeHandler(async (_e, raw: unknown) => {
+    const input = raw as { name?: unknown; taxId?: unknown; color?: unknown; notes?: unknown };
+    const name = validateProfileName(input.name);
+    const color = input.color ? validateProfileColor(input.color) : undefined;
+    return await profileService.createProfile({
+      name,
+      taxId: typeof input.taxId === "string" ? input.taxId : undefined,
+      color,
+      notes: typeof input.notes === "string" ? input.notes : undefined,
+    });
+  }));
+  ipcMain.handle("profile:rename", safeHandler(async (_e, raw: unknown) => {
+    const input = raw as { oldName?: unknown; newName?: unknown };
+    if (typeof input.oldName !== "string") throw new Error("oldName required");
+    return await profileService.renameProfile(input.oldName, validateProfileName(input.newName));
+  }));
+  ipcMain.handle("profile:updateMeta", safeHandler(async (_e, raw: unknown) => {
+    const input = raw as { name?: unknown; taxId?: unknown; color?: unknown; notes?: unknown };
+    if (typeof input.name !== "string") throw new Error("name required");
+    const patch: { taxId?: string; color?: string; notes?: string } = {};
+    if (input.taxId !== undefined) patch.taxId = String(input.taxId);
+    if (input.color !== undefined) patch.color = validateProfileColor(String(input.color));
+    if (input.notes !== undefined) patch.notes = String(input.notes);
+    return await profileService.updateProfileMeta(input.name, patch);
+  }));
+  ipcMain.handle("profile:delete", safeHandler(async (_e, raw: unknown) => {
+    if (typeof raw !== "string") throw new Error("name required");
+    await profileService.deleteProfile(raw);
+  }));
+  ipcMain.handle("profile:switch", safeHandler(async (_e, raw: unknown) => {
+    if (typeof raw !== "string") throw new Error("name required");
+    return await profileService.switchProfile(raw);
+  }));
+  ipcMain.handle("profile:export", safeHandler(async (_e, raw: unknown) => {
+    if (typeof raw !== "string") throw new Error("name required");
+    const { filePath, canceled } = await dialog.showSaveDialog({
+      title: `导出企业档案 "${raw}"`,
+      defaultPath: `${raw}-${new Date().toISOString().slice(0, 10)}.zip`,
+      filters: [{ name: "Zip archive", extensions: ["zip"] }],
+    });
+    if (canceled || !filePath) return { canceled: true };
+    await profileService.exportProfile(raw, filePath);
+    return { canceled: false, filePath };
+  }));
+
   // --- Dialog ---
   ipcMain.handle("dialog:openDirectory", safeHandler(async () => {
     const { filePaths } = await dialog.showOpenDialog({

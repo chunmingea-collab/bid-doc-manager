@@ -238,6 +238,29 @@ export interface ElectronAPI {
   onStartupReminder: (callback: (event: unknown, item: NotificationItem) => void) => () => void;
   onNotificationOpen: (callback: (event: unknown, payload: { route: string }) => void) => () => void;
   onMenuNavigate: (callback: (event: unknown, route: string) => void) => () => void;
+
+  // Profile (multi-enterprise workspaces)
+  listProfiles: () => Promise<ProfileMeta[]>;
+  getActiveProfile: () => Promise<ProfileMeta | null>;
+  createProfile: (input: { name: string; taxId?: string; color?: string; notes?: string }) => Promise<ProfileMeta>;
+  renameProfile: (oldName: string, newName: string) => Promise<ProfileMeta>;
+  updateProfileMeta: (input: { name: string; taxId?: string; color?: string; notes?: string }) => Promise<ProfileMeta>;
+  deleteProfile: (name: string) => Promise<{ success: boolean }>;
+  switchProfile: (name: string) => Promise<ProfileMeta>;
+  exportProfile: (name: string) => Promise<{ canceled: boolean; filePath?: string }>;
+  onProfileChanged: (callback: (event: unknown, payload: { name: string | null }) => void) => () => void;
+}
+
+export interface ProfileMeta {
+  id: string;
+  name: string;
+  taxId?: string;
+  color: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  sizeBytes: number;
+  fileCount: number;
 }
 
 declare global {

@@ -16,7 +16,7 @@ function findTemplateDb(): string | null {
   return null;
 }
 
-async function hasAnyTable(_dbPath: string): Promise<boolean> {
+async function hasAnyTable(): Promise<boolean> {
   try {
     const rows = await prisma.$queryRawUnsafe<{ n: bigint }[]>(
       "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table'",
@@ -28,17 +28,30 @@ async function hasAnyTable(_dbPath: string): Promise<boolean> {
 }
 
 /**
- * On first launch, the user's `userData/bid_doc_manager.db` does not exist yet.
- * We ship an empty, fully-migrated template DB at `<resources>/prisma/bid_doc_manager.db`
- * and copy it into place if missing or empty/invalid. A non-empty user DB is preserved.
+ * Ensure the active profile's SQLite database exists and is fully migrated.
+ * Skipped entirely if no profile is active (the wizard handles that case
+ * via profile-service.createProfile, which copies the template directly).
  */
 export async function ensureUserDatabase(): Promise<void> {
   const userDir = app.getPath("userData");
-  const userDb = path.join(userDir, "bid_doc_manager.db");
-  await fs.ensureDir(userDir);
+  const profilesDir = path.join(userDir, "profiles");
+  // Pick the most-recently-modified profile DB; the active profile is set
+  // by profile-service.init() before this runs, so prisma's URL points at
+  // the right file.
+  let userDb: string | null = null;
+  if (await fs.pathExists(profilesDir)) {
+    const entries = await fs.readdir(profilesDir);
+    for (const name of entries) {
+      const db = path.join(profilesDir, name, "bid_doc_manager.db");
+      if (await fs.pathExists(db)) {
+        userDb = db;
+        break;
+      }
+    }
+  }
 
-  if (await fs.pathExists(userDb)) {
-    if (await hasAnyTable(userDb)) return;
+  if (userDb && (await fs.pathExists(userDb))) {
+    if (await hasAnyTable()) return;
     logger.warn(`[db-migrate] Empty/invalid user DB at ${userDb}, re-seeding from template`);
     await fs.remove(userDb);
   }
@@ -46,12 +59,17 @@ export async function ensureUserDatabase(): Promise<void> {
   const source = findTemplateDb();
   if (!source) {
     throw new Error(
-      `Database template not found. Looked in resources/prisma/, cwd/prisma/, and app/prisma/`,
+      "Database template not found. Looked in resources/prisma/, cwd/prisma/, and app/prisma/",
     );
   }
 
-  await fs.copy(source, userDb);
-  logger.info(`[db-migrate] Seeded user DB from ${source}`);
+  if (userDb) {
+    await fs.ensureDir(path.dirname(userDb));
+    await fs.copy(source, userDb);
+    logger.info(`[db-migrate] Seeded user DB from ${source}`);
+  }
+  // If userDb is null the renderer hasn't picked a profile yet; the wizard
+  // copies the template when the user creates one.
 }
 
 /**
