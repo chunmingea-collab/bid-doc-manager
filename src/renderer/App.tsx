@@ -151,10 +151,16 @@ function WizardGate({ children }: { children: React.ReactNode }): React.ReactEle
     void refreshActive();
   }, [refresh, refreshActive]);
 
-  // While loading, render children (will likely 401 on DB calls — those
-  // are caught and shown as empty states). Show the wizard only when we
-  // have a confirmed empty profile list.
-  if (!loaded) return <>{children}</>;
+  // Wait for the initial profile fetch before mounting any route — the
+  // pages assume a real Prisma DB is behind `prisma.*`, which is only
+  // true once a profile is active. The placeholder DB has no tables.
+  if (!loaded) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#f5f5f5" }}>
+        <span style={{ color: "rgba(0,0,0,0.45)" }}>正在加载...</span>
+      </div>
+    );
+  }
   if (profiles.length > 0) return <>{children}</>;
 
   return (

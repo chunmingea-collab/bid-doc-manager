@@ -32,7 +32,7 @@ import {
   runReminderCheckAndNotify,
   startNotificationSchedule,
 } from "../services/notification-service";
-import { prisma } from "../../utils/prisma";
+import { prisma, isReady as prismaReady } from "../../utils/prisma";
 import { parseExpiryToDate, daysBetween } from "../../utils/date";
 import { removeFtsEntry } from "../services/db-migrate";
 import { logger } from "../services/logger";
@@ -322,6 +322,11 @@ export function registerIpcHandlers(): void {
 
   // --- Reminder ---
   ipcMain.handle("reminder:check", safeHandler(async () => {
+    // No active profile yet (wizard hasn't run). The placeholder DB has no
+    // tables — return empty buckets instead of logging Prisma errors.
+    if (!prismaReady()) {
+      return { overdue: [], within30Days: [], within60Days: [], within90Days: [] };
+    }
     const { overdue, within30Days, within60Days, within90Days } = await checkExpiringDocuments();
     const now = new Date();
     const mapBucket = (docs: typeof overdue, bucket: string) =>
@@ -603,6 +608,9 @@ export function registerIpcHandlers(): void {
 
   // --- Dashboard Stats ---
   ipcMain.handle("dashboard:stats", safeHandler(async (): Promise<DashboardStats> => {
+    if (!prismaReady()) {
+      return { totalCount: 0, thisMonthCount: 0, errorCount: 0, expiringCount: 0 };
+    }
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -628,6 +636,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(
     "dashboard:recent",
     safeHandler(async (_event, limit?: number): Promise<Array<{ id: string; fileName: string; category: string | null; importStatus: string; createdAt: string }>> => {
+      if (!prismaReady()) return [];
       const take = Math.min(Math.max(limit ?? 10, 1), 50);
       const rows = await prisma.file.findMany({
         where: { isDeleted: false },
@@ -673,6 +682,7 @@ export function registerIpcHandlers(): void {
   }));
 
   ipcMain.handle("notification:checkNow", safeHandler(async () => {
+    if (!prismaReady()) return [];
     return runReminderCheckAndNotify(true);
   }));
 }

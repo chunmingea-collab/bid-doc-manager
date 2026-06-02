@@ -4,6 +4,7 @@ import { app } from "electron";
 import { backupData } from "./backup-service";
 import { getSetting, setSetting } from "./settings-service";
 import { logger } from "./logger";
+import { isReady as prismaReady } from "../../utils/prisma";
 
 const SCHEDULE_TICK_MS = 60 * 1000; // 1 minute — cheap because we early-exit when not due
 
@@ -105,6 +106,9 @@ async function retainLatest(dir: string, keep: number): Promise<void> {
 }
 
 async function tick(): Promise<void> {
+  // No active profile yet (wizard hasn't run). The placeholder DB has no
+  // tables — skip silently rather than logging Prisma errors.
+  if (!prismaReady()) return;
   const cadence = await getSetting("autoBackupCadence");
   if (cadence === "off") return;
   const now = new Date();

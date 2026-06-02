@@ -2,6 +2,7 @@ import { Notification, BrowserWindow, app } from "electron";
 import { checkExpiringDocuments } from "./reminder-service";
 import { getSetting, setSetting } from "./settings-service";
 import { logger } from "./logger";
+import { isReady as isActiveProfileReady } from "../../utils/prisma";
 
 export interface NotificationItem {
   id: string;
@@ -57,6 +58,10 @@ const BUCKET_LABELS: Record<NotificationItem["bucket"], string> = {
 
 /** Run an immediate reminder check and surface as both native + in-app notifications. */
 export async function runReminderCheckAndNotify(force = false): Promise<NotificationItem[]> {
+  // No active profile yet (the wizard hasn't run). The placeholder DB has no
+  // tables — skip silently rather than logging a Prisma "no such table" error.
+  if (!isActiveProfileReady()) return [];
+
   const enabled = await getSetting("reminderEnabled");
   if (!enabled && !force) return [];
 
@@ -100,6 +105,12 @@ let scheduledHandle: { stop: () => void } | null = null;
  *  Fires once at app start, then at the user-configured `reminderHour`
  *  every day. Re-call this on settings change to re-arm. */
 export async function startNotificationSchedule(): Promise<void> {
+  // No active profile yet (the wizard hasn't run). The placeholder DB has
+  // no tables — skip silently rather than logging Prisma errors.
+  if (!isActiveProfileReady()) {
+    scheduledHandle = null;
+    return;
+  }
   scheduledHandle?.stop();
   const enabled = await getSetting("reminderEnabled");
   if (!enabled) {
@@ -159,6 +170,8 @@ function scheduleDailyReminderAtUserHour(): { stop: () => void } {
 }
 
 export async function maybeShowStartupReminder(): Promise<NotificationItem | null> {
+  if (!isActiveProfileReady()) return null;
+
   const enabled = await getSetting("startupReminderEnabled");
   if (!enabled) return null;
 
