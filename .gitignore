@@ -44,10 +44,16 @@ Desktop.ini
 *.err
 npm-debug.log*
 pnpm-debug.log*
+# Stdout/stderr captured by manual `Start-Process ... -RedirectStandardError` runs
+build/app-stdout.log
+build/app-stderr.log
 
 # PyInstaller spec / work (icon.ico in this folder is intentionally tracked)
 build/pyinstaller/
 build/*.spec
+# Generated icon intermediates (the final icon.ico + icon.png are tracked)
+build/icon-*.png
+!build/icon.png
 
 # Playwright e2e output
 playwright-report/

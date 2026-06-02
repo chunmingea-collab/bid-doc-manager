@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pickDayKey, pickFilesToDelete } from "../src/main/services/auto-backup-scheduler";
+import { pickDayKey, pickFilesToDelete } from "./auto-backup-scheduler";
 
 describe("pickDayKey", () => {
   it("returns YYYY-MM-DD for daily cadence", () => {

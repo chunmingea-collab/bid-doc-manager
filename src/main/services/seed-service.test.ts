@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_CATEGORY_COLORS } from "../src/main/services/seed-service";
+import { DEFAULT_CATEGORY_COLORS } from "./seed-service";
 
 describe("seed-service: default color palette", () => {
   it("assigns a distinct hex color to every top-level category", () => {

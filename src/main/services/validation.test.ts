@@ -3,7 +3,7 @@ import {
   validateReorderInput,
   validateApplyToFilesInput,
   validateBackupDeleteInput,
-} from "../src/main/services/validation";
+} from "./validation";
 
 describe("validateReorderInput", () => {
   it("accepts a non-empty string array", () => {

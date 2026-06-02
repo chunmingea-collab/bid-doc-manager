@@ -127,7 +127,7 @@ jobs:
         run: pnpm build
 
       - name: Run Playwright e2e
-        run: pnpm playwright test
+        run: pnpm playwright test --config e2e/playwright.config.ts
 
       - name: Upload Playwright report
         if: failure()

@@ -57,16 +57,27 @@ bid-doc-manager/
 │   │   ├── index.ts          # Entry point
 │   │   ├── ipc/              # IPC handlers
 │   │   └── services/         # Import, OCR, classification, search, notification
+│   ├── preload/              # Context-isolated preload bridge
 │   ├── renderer/             # React UI
 │   │   ├── store/            # Zustand stores
 │   │   ├── components/       # Shared UI components
-│   │   └── pages/            # Dashboard, Import, Documents, Settings
-│   ├── models/               # Data model type definitions
-│   └── utils/                # Shared utilities
-├── prisma/schema.prisma      # Database schema
+│   │   ├── pages/            # Dashboard, Import, Documents, Settings
+│   │   └── utils/            # Renderer-side helpers
+│   └── utils/                # Shared utilities (date, contrast, prisma)
+├── prisma/
+│   ├── schema.prisma         # Database schema
+│   ├── bid_doc_manager.db    # Seed template shipped in the installer
+│   └── migrations/           # Versioned migration history
 ├── config/default-categories.ts  # Built-in classification rules
-└── public/                   # Static assets
+├── scripts/                  # Build & maintenance scripts
+│   └── __tests__/            # Tests for build assets
+├── e2e/                      # Playwright Electron e2e tests
+├── build/                    # Icons, EULA, installer header (build assets)
+└── electron-builder.yml      # Packager config
 ```
+
+Tests are co-located with their source as `*.test.ts`. Build-level tests for
+`electron-builder.yml` and `EULA.txt` live in `scripts/__tests__/`.
 
 ## Development Task Sequence (from PRD)
 

@@ -9,7 +9,17 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "tests/**/*.test.ts"],
+    include: [
+      "src/**/*.test.ts",
+      "src/**/*.test.tsx",
+      "scripts/**/*.test.ts",
+    ],
+    exclude: [
+      "node_modules",
+      "dist",
+      "dist-electron",
+      "release",
+    ],
     globals: false,
     setupFiles: ["./vitest.setup.ts"],
   },

@@ -3,7 +3,7 @@ import {
   cancelImportTask,
   pauseImportTask,
   resumeImportTask,
-} from "../src/main/services/import/index";
+} from "./index";
 
 const VALID_UUID = "11111111-1111-4111-8111-111111111111";
 

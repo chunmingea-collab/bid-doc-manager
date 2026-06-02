@@ -3,15 +3,15 @@ import { defineConfig } from "@playwright/test";
 /**
  * Playwright config for Electron end-to-end tests.
  *
- * Run:
+ * Run from project root:
  *   pnpm test:e2e           # builds app + runs e2e
  *   pnpm test:e2e:ui        # opens Playwright UI
  *
  * Each test launches its own Electron instance with an isolated userData dir
- * (see `e2e/helpers/launch.ts`) so tests don't pollute each other.
+ * so tests don't pollute each other. Skipped in headless CI (no display).
  */
 export default defineConfig({
-  testDir: "./e2e",
+  testDir: ".",
   timeout: 90_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,

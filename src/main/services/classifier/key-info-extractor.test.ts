@@ -92,3 +92,21 @@ describe("extractKeyInfo — qualificationLevel", () => {
     expect(extractKeyInfo("无任何等级信息").qualificationLevel).toBeNull();
   });
 });
+
+describe("extractKeyInfo — robustness", () => {
+  it("does not throw on empty or short text", () => {
+    expect(() => extractKeyInfo("")).not.toThrow();
+    expect(() => extractKeyInfo("123456")).not.toThrow();
+    expect(() => extractKeyInfo("公司\n编号\n日期")).not.toThrow();
+  });
+
+  it("trims and de-dupes a leading 证书编号 prefix", () => {
+    expect(extractKeyInfo("证书编号：AB-12345").certificateNumber).toBe("AB-12345");
+  });
+
+  it("identifies 注册建造师 (longest-match wins over 一级 / 一级注册)", () => {
+    expect(
+      extractKeyInfo("本证书为一级注册建造师执业资格证书").qualificationLevel,
+    ).toBe("注册建造师");
+  });
+});

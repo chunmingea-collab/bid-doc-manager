@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import fse from "fs-extra";
 import path from "path";
 import os from "os";
-import { scanPaths } from "../src/main/services/import/index";
+import { scanPaths } from "./index";
 
 let tmpDir: string;
 
