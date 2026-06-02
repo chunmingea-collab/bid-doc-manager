@@ -16,14 +16,20 @@ const OPTIONAL_BUT_WARN = [
   path.join("resources", "vendor", "paddleocr", "paddleocr_runner.exe"),
 ];
 
-// Prisma SQLite query engine file — name varies by platform
-const PRISMA_ENGINE_GLOBS = [/query_engine.*\.node/, /query_engine.*\.dll/];
+// Prisma SQLite query engine — extracted from the asar to
+// <resources>/app.asar.unpacked/<in-asar-path>/query_engine-*.node via
+// asarUnpack (see electron-builder.yml). Walk the unpacked tree for the
+// engine binary so we don't have to hard-code the in-asar sub-path.
+const PRISMA_ENGINE_NAMES = [
+  "query_engine-windows.dll.node",
+  "query_engine-linux.so.node",
+  "query_engine-darwin.dylib.node",
+  "query_engine-darwin-arm64.dylib.node",
+];
 
-function findPrismaEngine(root) {
-  // Walk asar-unpacked dir for a query-engine binary
-  const unpacked = path.join(root, "app.asar.unpacked");
-  if (!fs.existsSync(unpacked)) return null;
-  const stack = [unpacked];
+function findPrismaEngine(unpackedRoot) {
+  if (!fs.existsSync(unpackedRoot)) return null;
+  const stack = [unpackedRoot];
   while (stack.length) {
     const dir = stack.pop();
     let entries;
@@ -36,7 +42,7 @@ function findPrismaEngine(root) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         stack.push(full);
-      } else if (PRISMA_ENGINE_GLOBS.some((re) => re.test(entry.name))) {
+      } else if (PRISMA_ENGINE_NAMES.includes(entry.name)) {
         return full;
       }
     }
@@ -62,9 +68,9 @@ exports.default = async function afterPack(context) {
     }
   }
 
-  const enginePath = findPrismaEngine(path.join(appOut, "resources"));
+  const enginePath = findPrismaEngine(path.join(appOut, "resources", "app.asar.unpacked"));
   if (!enginePath) {
-    missing.push("prisma query engine (query_engine-*.node)");
+    missing.push("prisma query engine (app.asar.unpacked/**/query_engine-*.{dll,so,dylib}.node)");
   } else {
     console.log(`[after-pack] Prisma engine: ${enginePath}`);
   }

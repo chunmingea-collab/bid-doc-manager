@@ -4,33 +4,54 @@ import { app } from "electron";
 import { prisma } from "../../utils/prisma";
 import { logger } from "./logger";
 
+function findTemplateDb(): string | null {
+  const candidates = [
+    process.resourcesPath ? path.join(process.resourcesPath, "prisma", "bid_doc_manager.db") : "",
+    path.join(process.cwd(), "prisma", "bid_doc_manager.db"),
+    path.join(app.getAppPath(), "prisma", "bid_doc_manager.db"),
+  ].filter(Boolean);
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+async function hasAnyTable(_dbPath: string): Promise<boolean> {
+  try {
+    const rows = await prisma.$queryRawUnsafe<{ n: bigint }[]>(
+      "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table'",
+    );
+    return Number(rows[0]?.n ?? 0n) > 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * On first launch, the user's `userData/bid_doc_manager.db` does not exist yet.
  * We ship an empty, fully-migrated template DB at `<resources>/prisma/bid_doc_manager.db`
- * and copy it into place if missing. Existing user DBs are never overwritten.
+ * and copy it into place if missing or empty/invalid. A non-empty user DB is preserved.
  */
 export async function ensureUserDatabase(): Promise<void> {
   const userDir = app.getPath("userData");
   const userDb = path.join(userDir, "bid_doc_manager.db");
-  if (await fs.pathExists(userDb)) {
-    return;
-  }
-
   await fs.ensureDir(userDir);
 
-  const candidates = [
-    path.join(process.resourcesPath ?? "", "prisma", "bid_doc_manager.db"),
-    path.join(process.cwd(), "prisma", "bid_doc_manager.db"),
-  ];
+  if (await fs.pathExists(userDb)) {
+    if (await hasAnyTable(userDb)) return;
+    logger.warn(`[db-migrate] Empty/invalid user DB at ${userDb}, re-seeding from template`);
+    await fs.remove(userDb);
+  }
 
-  const source = candidates.find((p) => fs.existsSync(p));
+  const source = findTemplateDb();
   if (!source) {
     throw new Error(
-      `Database template not found. Tried:\n${candidates.join("\n")}`,
+      `Database template not found. Looked in resources/prisma/, cwd/prisma/, and app/prisma/`,
     );
   }
 
   await fs.copy(source, userDb);
+  logger.info(`[db-migrate] Seeded user DB from ${source}`);
 }
 
 /**

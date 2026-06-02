@@ -2,7 +2,10 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
-import globals from "globals";
+// Node 25 strict-ESM doesn't auto-resolve the implicit `main` of
+// `globals` (which has no package.json `main`/`exports` field). Pin the
+// explicit file path so the resolver doesn't error out.
+import globals from "globals/index.js";
 
 const nodeGlobals = {
   ...globals.node,

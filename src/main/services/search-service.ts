@@ -12,10 +12,21 @@ export interface SearchFilters {
 }
 
 export interface SearchResult {
-  file: any;
+  file: FileWithRelations;
   score: number;
   matchedFields: string[];
 }
+
+// Local view-model of a File row plus its eager-loaded relations. Keeps
+// the renderer from having to type-narrow `any` and unlocks proper IDE
+// completion in callers.
+export type FileWithRelations = Awaited<
+  ReturnType<typeof prisma.file.findFirst<{ include: { tags: true; category: true } }>>
+>;
+// The Prisma conditional return type is `T | null`; we only ever use the
+// non-null branch because the call site guards with `where`. The alias
+// keeps the export simple and human-readable.
+export type SearchedFile = NonNullable<FileWithRelations>;
 
 const FILE_TYPE_EXTENSIONS: Record<string, string[]> = {
   PDF: ['.pdf'],
@@ -42,7 +53,9 @@ function buildFtsMatchQuery(raw: string): string | null {
 
 function buildStructuralWhere(filters: SearchFilters, idsHint?: string[]) {
   const { categoryIds, tagNames, companyName, personName, certificateNumber, fileType } = filters;
-  const conditions: any[] = [{ isDeleted: false }];
+  // The shape is the Prisma `where` input for the File model. Importing
+  // the type keeps this literal strongly typed without `any`.
+  const conditions: import("../../generated/prisma").Prisma.FileWhereInput[] = [{ isDeleted: false }];
 
   if (idsHint) {
     conditions.push({ id: { in: idsHint } });
@@ -168,7 +181,7 @@ export async function searchDocuments(
     }),
   ]);
 
-  const results: SearchResult[] = files.map((file: any) => {
+  const results: SearchResult[] = files.map((file) => {
     const { score, matchedFields } = scoreAndMatchedFields(queryRaw ?? '', file);
     return { file, score, matchedFields };
   });

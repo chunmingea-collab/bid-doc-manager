@@ -7,7 +7,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
-      "@prisma/client": path.resolve(__dirname, "node_modules/.prisma/client"),
     },
   },
   plugins: [
@@ -19,12 +18,11 @@ export default defineConfig({
       vite: {
         build: {
           rollupOptions: {
-            external: ["electron", ".prisma/client"],
-          },
-        },
-        resolve: {
-          alias: {
-            "@prisma/client": path.resolve(__dirname, "node_modules/.prisma/client"),
+            // Keep electron out of the bundle. The generated Prisma client
+            // is bundled directly (resolved via the import in
+            // src/utils/prisma.ts which points at src/generated/prisma)
+            // so the .node binary's reference resolves through the asar.
+            external: ["electron"],
           },
         },
       },

@@ -1,11 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pickDayKey } from "../src/main/services/auto-backup-scheduler";
-
-// Re-implement the local pure helpers here so the test does not need a
-// running Electron app. The implementation in auto-backup-scheduler.ts is
-// not exported, so the test asserts the contract on the function we DO
-// export (pickDayKey via re-export). If the source changes, the test will
-// surface it.
+import { pickDayKey, pickFilesToDelete } from "../src/main/services/auto-backup-scheduler";
 
 describe("pickDayKey", () => {
   it("returns YYYY-MM-DD for daily cadence", () => {
@@ -32,5 +26,46 @@ describe("pickDayKey", () => {
     const a = new Date("2025-03-10T10:00:00Z");
     const b = new Date("2025-03-17T10:00:00Z");
     expect(pickDayKey(a, "weekly")).not.toBe(pickDayKey(b, "weekly"));
+  });
+});
+
+describe("pickFilesToDelete", () => {
+  it("keeps the N most recent and marks the rest for deletion", () => {
+    const files = [
+      "bid-manager-backup-2026-01-01T00-00-00.zip",
+      "bid-manager-backup-2026-01-02T00-00-00.zip",
+      "bid-manager-backup-2026-01-03T00-00-00.zip",
+      "bid-manager-backup-2026-01-04T00-00-00.zip",
+    ];
+    expect(pickFilesToDelete(files, 2)).toEqual([
+      "bid-manager-backup-2026-01-02T00-00-00.zip",
+      "bid-manager-backup-2026-01-01T00-00-00.zip",
+    ]);
+  });
+
+  it("returns all files when keep is 0", () => {
+    const files = ["bid-manager-backup-2026-01-01T00-00-00.zip", "bid-manager-backup-2026-01-02T00-00-00.zip"];
+    expect(pickFilesToDelete(files, 0)).toEqual([...files].sort().reverse());
+  });
+
+  it("returns nothing when keep is greater than file count", () => {
+    const files = ["bid-manager-backup-2026-01-01T00-00-00.zip"];
+    expect(pickFilesToDelete(files, 10)).toEqual([]);
+  });
+
+  it("ignores non-matching files in the directory", () => {
+    const files = [
+      "bid-manager-backup-2026-01-01T00-00-00.zip",
+      "other.txt",
+      "bid-manager-backup-2026-01-02T00-00-00.zip",
+      "random.zip",
+    ];
+    expect(pickFilesToDelete(files, 1)).toEqual(["bid-manager-backup-2026-01-01T00-00-00.zip"]);
+  });
+
+  it("coerces negative or fractional keep to a safe integer", () => {
+    const files = ["bid-manager-backup-2026-01-01T00-00-00.zip", "bid-manager-backup-2026-01-02T00-00-00.zip"];
+    expect(pickFilesToDelete(files, -1)).toEqual([...files].sort().reverse());
+    expect(pickFilesToDelete(files, 1.9)).toEqual(["bid-manager-backup-2026-01-01T00-00-00.zip"]);
   });
 });

@@ -16,8 +16,7 @@
     "outDir": "./out",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@prisma/client": [".prisma/client"]
+      "@/*": ["src/*"]
     },
     "types": ["vite/client"]
   },

@@ -29,7 +29,6 @@ import {
 } from "@ant-design/icons";
 import type { DataNode } from "antd/es/tree";
 import { useCategoryStore, type CategoryRuleWithColor } from "../../store/category-store";
-import type { CategoryRule } from "../../../../config/default-categories";
 
 const { Title } = Typography;
 

@@ -71,19 +71,35 @@ async function runBackupWithRetry(): Promise<{ ok: true; path: string } | { ok: 
  * Errors are swallowed: backup retention is a janitor task and must not
  * crash the scheduler tick.
  */
+/**
+ * Pure helper: from a list of file names, decide which ones to keep and
+ * which to delete to satisfy the `keep` invariant. Exported for unit
+ * testing so we don't need a real directory in CI.
+ *
+ * Backups are sorted by name descending (ISO timestamps are designed to
+ * sort lexicographically), then we keep the first `keep` items and
+ * delete the rest. Empty / non-matching entries are ignored.
+ */
+export function pickFilesToDelete(fileNames: string[], keep: number): string[] {
+  const safeKeep = Math.max(0, Math.floor(keep));
+  const backups = fileNames
+    .filter((f) => f.startsWith("bid-manager-backup-") && f.endsWith(".zip"))
+    .sort((a, b) => b.localeCompare(a));
+  return backups.slice(safeKeep);
+}
+
 async function retainLatest(dir: string, keep: number): Promise<void> {
   if (!(await fs.pathExists(dir))) return;
   const files = (await fs.readdir(dir))
-    .filter((f) => f.startsWith("bid-manager-backup-") && f.endsWith(".zip"))
-    .map((f) => ({ name: f, full: path.join(dir, f), mtime: 0 }))
-    .sort((a, b) => b.name.localeCompare(a.name));
-  const toDelete = files.slice(Math.max(0, keep));
-  for (const f of toDelete) {
+    .filter((f) => f.startsWith("bid-manager-backup-") && f.endsWith(".zip"));
+  const toDelete = pickFilesToDelete(files, keep);
+  for (const name of toDelete) {
+    const full = path.join(dir, name);
     try {
-      await fs.remove(f.full);
-      logger.info(`[auto-backup] pruned ${f.name}`);
+      await fs.remove(full);
+      logger.info(`[auto-backup] pruned ${name}`);
     } catch (err) {
-      logger.warn(`[auto-backup] failed to prune ${f.name}:`, err);
+      logger.warn(`[auto-backup] failed to prune ${name}:`, err);
     }
   }
 }
@@ -119,7 +135,7 @@ async function tick(): Promise<void> {
 function hookQuit(): void {
   if (lastQuitHooked) return;
   lastQuitHooked = true;
-  app.on("before-quit", async (e) => {
+  app.on("before-quit", async (_e) => {
     try {
       const onQuit = await getSetting("autoBackupOnQuit");
       if (!onQuit) return;

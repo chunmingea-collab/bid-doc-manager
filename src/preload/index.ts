@@ -51,7 +51,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("category:create", data),
   updateCategory: (data: { id: string; name?: string; parentId?: string | null; keywords?: string[]; color?: string }) =>
     ipcRenderer.invoke("category:update", data),
-  reorderCategories: (orderedIds: string[]) => ipcRenderer.invoke("category:reorder", orderedIds),
+  reorderCategories: (orderedIds: string[]) => ipcRenderer.invoke("category:reorder", { orderedIds }),
   applyCategoryToFiles: (categoryId: string, fileIds: string[]) =>
     ipcRenderer.invoke("category:applyToFiles", { categoryId, fileIds }),
   deleteCategory: (id: string) => ipcRenderer.invoke("category:delete", id),

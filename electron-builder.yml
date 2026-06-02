@@ -14,9 +14,9 @@ files:
   - dist-electron/**/*
   - "!node_modules/**/*"
   - package.json
-  - node_modules/.prisma/client/**/*
   - node_modules/@prisma/client/**/*
   - node_modules/@prisma/client/runtime/**/*
+  - src/generated/prisma/**/*
 
 asar: true
 asarUnpack:
@@ -63,12 +63,7 @@ nsis:
   license: build/EULA.txt
   installerHeader: build/installer-header.bmp
   installerHeaderIcon: build/icon.ico
-  # Custom messages — keep them short; NSIS UI is space-limited
-  customNsisScript: |
-    !macro customHeader
-      RequestExecutionLevel user
-    !macroend
-  # Append our uninstall-keep-data notice
+  # Display the version in Add/Remove Programs
   uninstallDisplayName: 投标资料管理工具 ${version}
 
 mac:

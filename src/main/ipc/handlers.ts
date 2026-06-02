@@ -36,6 +36,11 @@ import { prisma } from "../../utils/prisma";
 import { parseExpiryToDate, daysBetween } from "../../utils/date";
 import { removeFtsEntry } from "../services/db-migrate";
 import { logger } from "../services/logger";
+import {
+  validateReorderInput,
+  validateApplyToFilesInput,
+  validateBackupDeleteInput,
+} from "../services/validation";
 
 export interface DashboardStats {
   totalCount: number;
@@ -252,11 +257,9 @@ export function registerIpcHandlers(): void {
   }));
 
   ipcMain.handle("backup:delete", safeHandler(async (_event, dir: string | undefined, name: string) => {
+    const { name: safeName } = validateBackupDeleteInput({ dir, name });
     const target = dir && dir.length > 0 ? dir : path.join(app.getPath("documents"), "BidDocManagerBackups");
-    if (!/^bid-manager-backup-.*\.zip$/.test(name)) {
-      throw new Error("非法的备份文件名");
-    }
-    const full = path.join(target, name);
+    const full = path.join(target, safeName);
     if (!(await fs.pathExists(full))) return { success: true };
     await fs.remove(full);
     return { success: true };
@@ -491,29 +494,27 @@ export function registerIpcHandlers(): void {
     return { success: true };
   }));
 
-  ipcMain.handle("category:reorder", safeHandler(async (_event, orderedIds: string[]) => {
-    if (!Array.isArray(orderedIds)) throw new Error("orderedIds must be an array");
+  ipcMain.handle("category:reorder", safeHandler((async (_event: unknown, input: { orderedIds: string[] }) => {
+    const orderedIds = validateReorderInput(input);
     // Apply sortOrder = index. SQLite is fine with thousands of updates; we
     // only ever have a few dozen categories so a single transaction is fast.
     await prisma.$transaction(
-      orderedIds.map((id, idx) =>
+      orderedIds.map((id: string, idx: number) =>
         prisma.category.update({ where: { id }, data: { sortOrder: idx } }),
       ),
     );
     invalidateClassifierCache();
     return { success: true };
-  }));
+  }) as (...args: unknown[]) => Promise<unknown>));
 
-  ipcMain.handle("category:applyToFiles", safeHandler(async (_event, { categoryId, fileIds }: { categoryId: string; fileIds: string[] }) => {
-    if (!Array.isArray(fileIds) || fileIds.length === 0) {
-      throw new Error("fileIds 不能为空");
-    }
+  ipcMain.handle("category:applyToFiles", safeHandler((async (_event: unknown, input: { categoryId: string; fileIds: string[] }) => {
+    const { categoryId, fileIds } = validateApplyToFilesInput(input);
     const result = await prisma.file.updateMany({
       where: { id: { in: fileIds }, isDeleted: false },
       data: { categoryId },
     });
     return { updated: result.count };
-  }));
+  }) as (...args: unknown[]) => Promise<unknown>));
 
   ipcMain.handle("category:delete", safeHandler(async (_event, id: string) => {
     const toDelete = new Set<string>();
