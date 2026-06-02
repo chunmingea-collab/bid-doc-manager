@@ -33,6 +33,7 @@ vendor/paddleocr/paddleocr_runner.exe
 # Tool local settings
 .claude/
 .opencode/
+projects/
 
 # OS
 .DS_Store
